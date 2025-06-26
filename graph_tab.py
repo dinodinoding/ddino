@@ -1,5 +1,3 @@
-# graph_tab.py
-
 import os
 import subprocess
 from datetime import datetime, timedelta
@@ -19,19 +17,14 @@ import matplotlib.dates as mdates
 from utils.config_loader import load_config
 
 
-import os
-import re
-import xml.etree.ElementTree as ET
-from datetime import datetime
-
-# 🔧 [추가] 네임스페이스 제거 함수
 def strip_namespace(tree):
     for elem in tree.iter():
         if '}' in elem.tag:
             elem.tag = elem.tag.split('}', 1)[1]
     return tree
 
-def parse_xml_data(xml_path, series_names):
+
+def parse_xml_data(xml_path, id_to_name_map, allowed_ids):
     print(">> [parse_xml_data] XML 데이터 파싱 시작")
     if not os.path.exists(xml_path):
         print(f">> [오류] XML 파일 경로 존재하지 않음: {xml_path}")
@@ -41,48 +34,34 @@ def parse_xml_data(xml_path, series_names):
     try:
         tree = ET.parse(xml_path)
         root = tree.getroot()
-
-        strip_namespace(tree)  # 🔧 [추가됨] 네임스페이스 제거
+        strip_namespace(tree)
 
         value_data_list = root.findall('.//ValueData')
         print(f">> 전체 ValueData 블록 수: {len(value_data_list)}")
 
         for idx, vd in enumerate(value_data_list, 1):
-            full_param = vd.get('Parameter') or vd.get('Prameter') or ""
-            print(f"\n-- [{idx}] ValueData Parameter: {full_param}")
-
-            # 🔧 [수정됨] 정규표현식으로 정확히 I-Column.파라미터만 추출
-            match = re.search(r'I-Column\.([A-Za-z0-9_]+)$', full_param)
-            if not match:
-                print("   ❌ 패턴 불일치 → 건너뜀")
+            param_id = vd.get("ParameterID")
+            if param_id not in allowed_ids:
                 continue
-            param_name = match.group(1)
+            param_name = id_to_name_map.get(param_id, f"ID_{param_id}")
+            print(f"  - [{idx}] ParameterID: {param_id} → 이름: {param_name}")
 
-            if param_name not in series_names:
-                print(f"   ❌ 시리즈 대상 아님: {param_name}")
-                continue
-
-            print(f"   ✅ 대상 파라미터: {param_name}")
-
-            # 내부 값 파싱
             param_values = vd.findall('ParameterValue')
-            print(f"   ▶ 포함된 ParameterValue 수: {len(param_values)}")
+            print(f"    → 포함된 ParameterValue 수: {len(param_values)}")
             for pv in param_values:
                 try:
                     ts = pv.get('Timestamp')
                     val_node = pv.find('Value')
                     val_text = val_node.text if val_node is not None else None
 
-                    if ts is None or val_node is None or val_text is None:
-                        print(f"      ⚠️ 스킵: Timestamp 또는 Value 없음")
+                    if ts is None or val_text is None:
                         continue
 
-                    # 🔧 [보완] Z가 붙은 경우도 처리
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
                     val = float(val_text)
                     temp_points.append({'param': param_name, 'time': dt, 'value': val})
                 except Exception as e:
-                    print(f"      ⚠️ 파싱 실패 → {e}")
+                    print(f"    [예외] 파싱 실패 → {e}")
                     continue
 
     except Exception as e:
@@ -90,11 +69,12 @@ def parse_xml_data(xml_path, series_names):
         raise e
 
     if not temp_points:
-        print(">> [경고] 유효한 데이터가 없음")
+        print(">> [주의] 유효한 데이터가 없음")
         raise ValueError("XML 파일에 유효한 데이터를 찾을 수 없습니다.")
 
     print(f">> [성공] 파싱된 포인트 수: {len(temp_points)}")
     return temp_points
+
 
 class GraphTab(QWidget):
     TIME_OPTIONS = {
@@ -104,9 +84,12 @@ class GraphTab(QWidget):
     }
 
     GRAPH_DEFINITIONS = [
-        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None, "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
-        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000), "series": ['ACC', 'EXT', 'LENS1', 'Supp']},
-        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50), "series": ['ACC_Leakage', 'Emission_current', 'Lens1_Leakage', 'Supp_Leakage']}
+        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None,
+         "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
+        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000),
+         "series": ['ACC', 'EXT', 'LENS1', 'Supp']},
+        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50),
+         "series": ['ACC_Leakage', 'Emission_current', 'Lens1_Leakage', 'Supp_Leakage']}
     ]
 
     def __init__(self):
@@ -122,16 +105,16 @@ class GraphTab(QWidget):
         except Exception as e:
             print(f"[에러] config 로드 실패: {e}")
             cfg = {}
+
         self.xml_log_path = cfg.get("xml_log", "")
         self.bat_path = cfg.get("batch_file", "")
-        if not self.xml_log_path:
-            print("[경고] xml_log 경로가 비어있음")
-        if not self.bat_path:
-            print("[경고] batch_file 경로가 비어있음")
+        self.id_to_name_map = cfg.get("parameter_map", {})
+        self.allowed_param_ids = list(self.id_to_name_map.keys())
+
         print(f">> 설정된 XML 경로: {self.xml_log_path}")
         print(f">> 설정된 배치 파일 경로: {self.bat_path}")
+        print(f">> 설정된 파라미터 ID 목록: {self.allowed_param_ids}")
 
-        self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
         self.all_points = []
         self.update_display(force_reload=True)
 
@@ -201,27 +184,22 @@ class GraphTab(QWidget):
 
         if not self.all_points:
             self.status_label.setText("표시할 데이터가 없습니다.")
-            print(">> [경고] 데이터 없음")
             return
 
         try:
             dmax = max(p['time'] for p in self.all_points)
             selected_delta = self.TIME_OPTIONS[self.time_combo.currentText()]
             cutoff_time = dmax - selected_delta
-            print(f">> 시간 필터: {self.time_combo.currentText()}, cutoff={cutoff_time}")
         except ValueError:
             self.status_label.setText("데이터에서 유효한 시간을 찾을 수 없습니다.")
-            print(">> [오류] 시간 파싱 실패")
             return
 
         for i, ax in enumerate(self.axes):
             definition = self.GRAPH_DEFINITIONS[i]
-            print(f">> 그래프 {i} 그리기 시작")
             data_for_this_graph = {name: [] for name in definition["series"]}
             for point in self.all_points:
                 if point['time'] >= cutoff_time and point['param'] in definition["series"]:
                     data_for_this_graph[point['param']].append((point['time'], point['value']))
-            print(f"   >> {definition['y_label']} 데이터 수: {[len(data_for_this_graph[name]) for name in definition['series']]}")
             self.plot_single_graph(ax, data_for_this_graph, definition)
 
         self.status_label.setText("그래프 업데이트 완료.")
@@ -248,29 +226,21 @@ class GraphTab(QWidget):
 
     def on_refresh_clicked(self):
         print(f">> [refresh] 배치 실행 요청: {self.bat_path}")
-        if not self.bat_path:
-            print("[에러] batch_file 경로가 비어있음")
-        if not os.path.exists(self.bat_path):
-            msg = f"배치 파일이 존재하지 않습니다: {self.bat_path}"
-            self.status_label.setText(msg)
-            print(f">> [오류] {msg}")
+        if not self.bat_path or not os.path.exists(self.bat_path):
+            self.status_label.setText(f"배치 파일이 존재하지 않습니다: {self.bat_path}")
             return
 
         self.status_label.setText("배치 파일 실행 중... 3초 대기합니다.")
         try:
             subprocess.Popen(self.bat_path, shell=True)
-            print(f">> [refresh] 배치 파일 실행: {self.bat_path}")
         except Exception as e:
-            msg = f"배치 파일 실행 실패: {e}"
-            self.status_label.setText(msg)
-            print(f">> [오류] {msg}")
+            self.status_label.setText(f"배치 파일 실행 실패: {e}")
             return
 
         self.stretchy_layout.setCurrentIndex(1)
         self.progress_bar.setValue(0)
         self.elapsed = 0
         self.refresh_button.setEnabled(False)
-        print("[상태] refresh_button 비활성화, 진행바 시작")
         self.progress_timer = QTimer(self)
         self.progress_timer.timeout.connect(self._update_progress)
         self.progress_timer.start(100)
@@ -278,20 +248,16 @@ class GraphTab(QWidget):
     def _update_progress(self):
         self.elapsed += 100
         self.progress_bar.setValue(self.elapsed)
-        print(f"[진행] 진행바 값: {self.elapsed}")
         if self.elapsed >= 3000:
-            print(">> [refresh] 진행바 완료 → XML 로드")
             self.progress_timer.stop()
             self.stretchy_layout.setCurrentIndex(0)
             self.refresh_button.setEnabled(True)
-            print("[상태] refresh_button 활성화")
             self.update_display(force_reload=True)
 
     def _load_data_from_xml(self):
         print(">> [load_data] XML 로드 시도")
         try:
-            self.all_points = parse_xml_data(self.xml_log_path, self.all_series_names)
-            print(f">> [load_data] XML 로드 성공, 데이터 수: {len(self.all_points)}")
+            self.all_points = parse_xml_data(self.xml_log_path, self.id_to_name_map, self.allowed_param_ids)
             return True
         except Exception as e:
             print(f">> [load_data] XML 로드 실패: {e}")

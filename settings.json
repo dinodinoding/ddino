@@ -1,0 +1,302 @@
+[
+  {
+    "title": "asd",
+    "description": "asd",
+    "root": "HKEY_CURRENT_USER",
+    "path": "software/apptest",
+    "key": "testvalue",
+    "type": "REG_DWORD",
+    "default": "300",
+    "value": "300"
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_SZ",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_SZ",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_SZ",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  },
+  {
+    "title": "",
+    "description": "",
+    "root": "HKEY_CURRENT_USER",
+    "path": "",
+    "key": "",
+    "type": "REG_DWORD",
+    "default": "",
+    "value": ""
+  }
+]

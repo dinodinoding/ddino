@@ -1,0 +1,15 @@
+{
+  "data_file": "e:\\data.txt",
+
+  "batch_file": "e:\\graph.bat",
+
+ 
+  "bat_files": [
+    "c:\\data\\data1.bat",
+    "c:\\data\\data2.bat"
+  ],
+  "error_logs": [
+    "e:\\errorlog.txt"
+  ],
+  "xml_log": "e:\\ggvaclog.xml"
+}

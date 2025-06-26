@@ -178,7 +178,9 @@ class ErrorLogTab(QWidget):
             levels.append('warning')
 
         html_lines = []
-        for ts, lvl, msg, name in all_lines:
+
+        # ✅ 최신순 정렬 (내림차순)
+        for ts, lvl, msg, name in sorted(all_lines, key=lambda x: x[0], reverse=True):
             if ts < cutoff or lvl not in levels:
                 continue
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]

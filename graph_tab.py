@@ -19,6 +19,11 @@ import matplotlib.dates as mdates
 from utils.config_loader import load_config
 
 
+import os
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime
+
 def parse_xml_data(xml_path, series_names):
     print(">> [parse_xml_data] XML 데이터 파싱 시작")
     if not os.path.exists(xml_path):
@@ -29,23 +34,46 @@ def parse_xml_data(xml_path, series_names):
     try:
         tree = ET.parse(xml_path)
         root = tree.getroot()
-        for vd in root.findall('.//ValueData'):
+        value_data_list = root.findall('.//ValueData')
+        print(f">> 전체 ValueData 블록 수: {len(value_data_list)}")
+
+        for idx, vd in enumerate(value_data_list, 1):
             full_param = vd.get('Parameter') or vd.get('Prameter') or ""
-            param_name = full_param.split('.')[-1].split()[0]
-            if param_name in series_names:
-                for pv in vd.findall('ParameterValue'):
-                    try:
-                        ts = pv.get('Timestamp')
-                        val_node = pv.find('Value')
-                        if ts is None or val_node is None or val_node.text is None:
-                            print(f"   !! 파싱 스킵: Timestamp 또는 Value 없음 (param={param_name})")
-                            continue
-                        dt = datetime.fromisoformat(ts).replace(tzinfo=None)
-                        val = float(val_node.text)
-                        temp_points.append({'param': param_name, 'time': dt, 'value': val})
-                    except (ValueError, TypeError, AttributeError) as e:
-                        print(f"   !! 파싱 예외: {e} (param={param_name})")
+            print(f"\n-- [{idx}] ValueData Parameter: {full_param}")
+
+            # 정확한 파라미터 이름 추출
+            match = re.search(r'I-Column\.([A-Za-z0-9_]+)$', full_param)
+            if not match:
+                print("   ❌ 패턴 불일치 → 건너뜀")
+                continue
+            param_name = match.group(1)
+
+            if param_name not in series_names:
+                print(f"   ❌ 시리즈 대상 아님: {param_name}")
+                continue
+
+            print(f"   ✅ 대상 파라미터: {param_name}")
+
+            # 내부 값 파싱
+            param_values = vd.findall('ParameterValue')
+            print(f"   ▶ 포함된 ParameterValue 수: {len(param_values)}")
+            for pv in param_values:
+                try:
+                    ts = pv.get('Timestamp')
+                    val_node = pv.find('Value')
+                    val_text = val_node.text if val_node is not None else None
+
+                    if ts is None or val_node is None or val_text is None:
+                        print(f"      ⚠️ 스킵: Timestamp 또는 Value 없음")
                         continue
+
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                    val = float(val_text)
+                    temp_points.append({'param': param_name, 'time': dt, 'value': val})
+                except Exception as e:
+                    print(f"      ⚠️ 파싱 실패 → {e}")
+                    continue
+
     except Exception as e:
         print(f">> [오류] XML 파싱 중 예외 발생: {e}")
         raise e

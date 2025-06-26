@@ -21,58 +21,49 @@ def strip_namespace(tree):
     for elem in tree.iter():
         if '}' in elem.tag:
             elem.tag = elem.tag.split('}', 1)[1]
-    return tree
 
 
-def parse_xml_data(xml_path, id_to_name_map, allowed_ids):
+def parse_xml_data(xml_path, param_map):
     print(">> [parse_xml_data] XML 데이터 파싱 시작")
     if not os.path.exists(xml_path):
-        print(f">> [오류] XML 파일 경로 존재하지 않음: {xml_path}")
         raise FileNotFoundError(f"XML 로그 파일을 찾을 수 없습니다: {xml_path}")
 
     temp_points = []
     try:
         tree = ET.parse(xml_path)
-        root = tree.getroot()
         strip_namespace(tree)
+        root = tree.getroot()
+        for vd in root.findall('.//ValueData'):
+            param_id = vd.attrib.get("ParameterID", "")
+            param_name = param_map.get(param_id, f"ID_{param_id}")
+            param_values = []
 
-        value_data_list = root.findall('.//ValueData')
-        print(f">> 전체 ValueData 블록 수: {len(value_data_list)}")
+            for child in vd:
+                tag = child.tag.lower()
+                if tag == "parametervalues":
+                    param_values.extend(child.findall("ParameterValue"))
+                elif tag == "parametervalue":
+                    param_values.append(child)
 
-        for idx, vd in enumerate(value_data_list, 1):
-            param_id = vd.get("ParameterID")
-            if param_id not in allowed_ids:
-                continue
-            param_name = id_to_name_map.get(param_id, f"ID_{param_id}")
-            print(f"  - [{idx}] ParameterID: {param_id} → 이름: {param_name}")
-
-            param_values = vd.findall('ParameterValue')
-            print(f"    → 포함된 ParameterValue 수: {len(param_values)}")
+            print(f"ValueData ParameterID: {param_id}, 시리즈: {param_name}, 포함된 수: {len(param_values)}")
             for pv in param_values:
                 try:
-                    ts = pv.get('Timestamp')
-                    val_node = pv.find('Value')
-                    val_text = val_node.text if val_node is not None else None
-
-                    if ts is None or val_text is None:
+                    ts = pv.get("Timestamp")
+                    val_node = pv.find("Value")
+                    if ts is None or val_node is None or val_node.text is None:
                         continue
-
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
-                    val = float(val_text)
+                    dt = datetime.fromisoformat(ts).replace(tzinfo=None)
+                    val = float(val_node.text)
                     temp_points.append({'param': param_name, 'time': dt, 'value': val})
                 except Exception as e:
-                    print(f"    [예외] 파싱 실패 → {e}")
-                    continue
-
+                    print(f"   !! 파싱 예외: {e} (param={param_name})")
     except Exception as e:
         print(f">> [오류] XML 파싱 중 예외 발생: {e}")
         raise e
 
     if not temp_points:
-        print(">> [주의] 유효한 데이터가 없음")
+        print(">> [경고] 유효한 데이터가 없음")
         raise ValueError("XML 파일에 유효한 데이터를 찾을 수 없습니다.")
-
-    print(f">> [성공] 파싱된 포인트 수: {len(temp_points)}")
     return temp_points
 
 
@@ -84,37 +75,23 @@ class GraphTab(QWidget):
     }
 
     GRAPH_DEFINITIONS = [
-        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None,
-         "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
-        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000),
-         "series": ['ACC', 'EXT', 'LENS1', 'Supp']},
-        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50),
-         "series": ['ACC_Leakage', 'Emission_current', 'Lens1_Leakage', 'Supp_Leakage']}
+        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None, "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
+        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000), "series": ['ACC', 'EXT', 'LENS1', 'Supp']},
+        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50), "series": ['ACC_Leakage', 'Emission_current', 'Lens1_Leakage', 'Supp_Leakage']}
     ]
 
     def __init__(self):
         super().__init__()
-        print(">> [GraphTab] 그래프 탭 초기화 시작")
-
         layout = QVBoxLayout(self)
         self._setup_controls(layout)
         self._setup_graph_area(layout)
 
-        try:
-            cfg = load_config()
-        except Exception as e:
-            print(f"[에러] config 로드 실패: {e}")
-            cfg = {}
-
+        cfg = load_config()
         self.xml_log_path = cfg.get("xml_log", "")
         self.bat_path = cfg.get("batch_file", "")
-        self.id_to_name_map = cfg.get("parameter_map", {})
-        self.allowed_param_ids = list(self.id_to_name_map.keys())
+        self.param_map = cfg.get("parameter_map", {})
 
-        print(f">> 설정된 XML 경로: {self.xml_log_path}")
-        print(f">> 설정된 배치 파일 경로: {self.bat_path}")
-        print(f">> 설정된 파라미터 ID 목록: {self.allowed_param_ids}")
-
+        self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
         self.all_points = []
         self.update_display(force_reload=True)
 
@@ -128,10 +105,7 @@ class GraphTab(QWidget):
         controls_layout.addWidget(self.time_combo)
 
         self.stretchy_layout = QStackedLayout()
-        stretchy_spacer = QFrame()
-        stretchy_spacer.setFrameShape(QFrame.Shape.NoFrame)
-        self.stretchy_layout.addWidget(stretchy_spacer)
-
+        self.stretchy_layout.addWidget(QFrame())  # Spacer
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 3000)
         self.progress_bar.setTextVisible(False)
@@ -147,36 +121,15 @@ class GraphTab(QWidget):
         self.figure = Figure(figsize=(10, 9), constrained_layout=True)
         self.canvas = FigureCanvas(self.figure)
         self.axes = self.figure.subplots(nrows=3, ncols=1, sharex=True)
-
-        toolbar = NavigationToolbar(self.canvas, self)
-        main_layout.addWidget(toolbar)
+        main_layout.addWidget(NavigationToolbar(self.canvas, self))
         main_layout.addWidget(self.canvas)
-
         self.status_label = QLabel("")
         main_layout.addWidget(self.status_label)
-        self.axes[0].callbacks.connect('xlim_changed', self.update_x_ticks)
-
-    def update_x_ticks(self, ax_event):
-        try:
-            xmin, xmax = self.axes[0].get_xlim()
-            duration_seconds = (xmax - xmin) * 24 * 3600
-            if duration_seconds <= 15:
-                formatter = mdates.DateFormatter('%H:%M:%S')
-            elif duration_seconds <= 3600 * 12:
-                formatter = mdates.DateFormatter('%H:%M')
-            else:
-                formatter = mdates.DateFormatter('%m-%d %H:%M')
-            self.axes[-1].xaxis.set_major_formatter(formatter)
-            self.canvas.draw_idle()
-        except Exception as e:
-            print(f">> [경고] x축 포맷 변경 중 예외 발생: {e}")
 
     def update_display(self, force_reload=False):
-        print(">> [update_display] 그래프 업데이트 시작")
         if force_reload or not self.all_points:
             self.status_label.setText("XML 데이터 로딩 중...")
             if not self._load_data_from_xml():
-                print(">> [경고] XML 로드 실패")
                 for ax in self.axes:
                     ax.clear()
                 self.canvas.draw()
@@ -186,13 +139,9 @@ class GraphTab(QWidget):
             self.status_label.setText("표시할 데이터가 없습니다.")
             return
 
-        try:
-            dmax = max(p['time'] for p in self.all_points)
-            selected_delta = self.TIME_OPTIONS[self.time_combo.currentText()]
-            cutoff_time = dmax - selected_delta
-        except ValueError:
-            self.status_label.setText("데이터에서 유효한 시간을 찾을 수 없습니다.")
-            return
+        dmax = max(p['time'] for p in self.all_points)
+        selected_delta = self.TIME_OPTIONS[self.time_combo.currentText()]
+        cutoff_time = dmax - selected_delta
 
         for i, ax in enumerate(self.axes):
             definition = self.GRAPH_DEFINITIONS[i]
@@ -204,7 +153,6 @@ class GraphTab(QWidget):
 
         self.status_label.setText("그래프 업데이트 완료.")
         self.canvas.draw()
-        print(">> [update_display] 그래프 완료")
 
     def plot_single_graph(self, ax, series_data, definition):
         ax.clear()
@@ -225,18 +173,11 @@ class GraphTab(QWidget):
             ax.legend(loc='upper left', fontsize='small')
 
     def on_refresh_clicked(self):
-        print(f">> [refresh] 배치 실행 요청: {self.bat_path}")
         if not self.bat_path or not os.path.exists(self.bat_path):
             self.status_label.setText(f"배치 파일이 존재하지 않습니다: {self.bat_path}")
             return
-
         self.status_label.setText("배치 파일 실행 중... 3초 대기합니다.")
-        try:
-            subprocess.Popen(self.bat_path, shell=True)
-        except Exception as e:
-            self.status_label.setText(f"배치 파일 실행 실패: {e}")
-            return
-
+        subprocess.Popen(self.bat_path, shell=True)
         self.stretchy_layout.setCurrentIndex(1)
         self.progress_bar.setValue(0)
         self.elapsed = 0
@@ -255,12 +196,10 @@ class GraphTab(QWidget):
             self.update_display(force_reload=True)
 
     def _load_data_from_xml(self):
-        print(">> [load_data] XML 로드 시도")
         try:
-            self.all_points = parse_xml_data(self.xml_log_path, self.id_to_name_map, self.allowed_param_ids)
+            self.all_points = parse_xml_data(self.xml_log_path, self.param_map)
             return True
         except Exception as e:
-            print(f">> [load_data] XML 로드 실패: {e}")
             self.status_label.setText(str(e))
             self.all_points = []
             return False

@@ -35,7 +35,11 @@ def parse_xml_data(xml_path, param_map):
         root = tree.getroot()
         for vd in root.findall('.//ValueData'):
             param_id = vd.attrib.get("ParameterID", "")
-            param_name = param_map.get(param_id, f"ID_{param_id}")
+            if param_id not in param_map:
+                print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}")
+                continue
+
+            param_name = param_map[param_id]
             param_values = []
 
             for child in vd:
@@ -45,7 +49,8 @@ def parse_xml_data(xml_path, param_map):
                 elif tag == "parametervalue":
                     param_values.append(child)
 
-            print(f"ValueData ParameterID: {param_id}, 시리즈: {param_name}, 포함된 수: {len(param_values)}")
+            print(f"ParameterID: {param_id} → {param_name}, 값 수: {len(param_values)}")
+
             for pv in param_values:
                 try:
                     ts = pv.get("Timestamp")
@@ -62,7 +67,6 @@ def parse_xml_data(xml_path, param_map):
         raise e
 
     if not temp_points:
-        print(">> [경고] 유효한 데이터가 없음")
         raise ValueError("XML 파일에 유효한 데이터를 찾을 수 없습니다.")
     return temp_points
 

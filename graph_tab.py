@@ -35,11 +35,16 @@ def parse_xml_data(xml_path, series_names):
             if param_name in series_names:
                 for pv in vd.findall('ParameterValue'):
                     try:
-                        ts, val_node = pv.get('Timestamp'), pv.find('Value')
+                        ts = pv.get('Timestamp')
+                        val_node = pv.find('Value')
+                        if ts is None or val_node is None or val_node.text is None:
+                            print(f"   !! 파싱 스킵: Timestamp 또는 Value 없음 (param={param_name})")
+                            continue
                         dt = datetime.fromisoformat(ts).replace(tzinfo=None)
                         val = float(val_node.text)
                         temp_points.append({'param': param_name, 'time': dt, 'value': val})
-                    except (ValueError, TypeError, AttributeError):
+                    except (ValueError, TypeError, AttributeError) as e:
+                        print(f"   !! 파싱 예외: {e} (param={param_name})")
                         continue
     except Exception as e:
         print(f">> [오류] XML 파싱 중 예외 발생: {e}")
@@ -74,9 +79,17 @@ class GraphTab(QWidget):
         self._setup_controls(layout)
         self._setup_graph_area(layout)
 
-        cfg = load_config()
+        try:
+            cfg = load_config()
+        except Exception as e:
+            print(f"[에러] config 로드 실패: {e}")
+            cfg = {}
         self.xml_log_path = cfg.get("xml_log", "")
         self.bat_path = cfg.get("batch_file", "")
+        if not self.xml_log_path:
+            print("[경고] xml_log 경로가 비어있음")
+        if not self.bat_path:
+            print("[경고] batch_file 경로가 비어있음")
         print(f">> 설정된 XML 경로: {self.xml_log_path}")
         print(f">> 설정된 배치 파일 경로: {self.bat_path}")
 
@@ -88,14 +101,14 @@ class GraphTab(QWidget):
         controls_layout = QHBoxLayout()
         controls_layout.addWidget(QLabel("기간 선택:"))
         self.time_combo = QComboBox()
-        self.time_combo.addItems(self.TIME_OPTIONS.keys())
+        self.time_combo.addItems(list(self.TIME_OPTIONS.keys()))
         self.time_combo.setCurrentText("30분")
         self.time_combo.currentTextChanged.connect(self.update_display)
         controls_layout.addWidget(self.time_combo)
 
         self.stretchy_layout = QStackedLayout()
         stretchy_spacer = QFrame()
-        stretchy_spacer.setFrameShape(QFrame.NoFrame)
+        stretchy_spacer.setFrameShape(QFrame.Shape.NoFrame)
         self.stretchy_layout.addWidget(stretchy_spacer)
 
         self.progress_bar = QProgressBar()
@@ -170,6 +183,7 @@ class GraphTab(QWidget):
             for point in self.all_points:
                 if point['time'] >= cutoff_time and point['param'] in definition["series"]:
                     data_for_this_graph[point['param']].append((point['time'], point['value']))
+            print(f"   >> {definition['y_label']} 데이터 수: {[len(data_for_this_graph[name]) for name in definition['series']]}")
             self.plot_single_graph(ax, data_for_this_graph, definition)
 
         self.status_label.setText("그래프 업데이트 완료.")
@@ -196,6 +210,8 @@ class GraphTab(QWidget):
 
     def on_refresh_clicked(self):
         print(f">> [refresh] 배치 실행 요청: {self.bat_path}")
+        if not self.bat_path:
+            print("[에러] batch_file 경로가 비어있음")
         if not os.path.exists(self.bat_path):
             msg = f"배치 파일이 존재하지 않습니다: {self.bat_path}"
             self.status_label.setText(msg)
@@ -205,6 +221,7 @@ class GraphTab(QWidget):
         self.status_label.setText("배치 파일 실행 중... 3초 대기합니다.")
         try:
             subprocess.Popen(self.bat_path, shell=True)
+            print(f">> [refresh] 배치 파일 실행: {self.bat_path}")
         except Exception as e:
             msg = f"배치 파일 실행 실패: {e}"
             self.status_label.setText(msg)
@@ -215,6 +232,7 @@ class GraphTab(QWidget):
         self.progress_bar.setValue(0)
         self.elapsed = 0
         self.refresh_button.setEnabled(False)
+        print("[상태] refresh_button 비활성화, 진행바 시작")
         self.progress_timer = QTimer(self)
         self.progress_timer.timeout.connect(self._update_progress)
         self.progress_timer.start(100)
@@ -222,18 +240,20 @@ class GraphTab(QWidget):
     def _update_progress(self):
         self.elapsed += 100
         self.progress_bar.setValue(self.elapsed)
+        print(f"[진행] 진행바 값: {self.elapsed}")
         if self.elapsed >= 3000:
             print(">> [refresh] 진행바 완료 → XML 로드")
             self.progress_timer.stop()
             self.stretchy_layout.setCurrentIndex(0)
             self.refresh_button.setEnabled(True)
+            print("[상태] refresh_button 활성화")
             self.update_display(force_reload=True)
 
     def _load_data_from_xml(self):
         print(">> [load_data] XML 로드 시도")
         try:
             self.all_points = parse_xml_data(self.xml_log_path, self.all_series_names)
-            print(">> [load_data] XML 로드 성공")
+            print(f">> [load_data] XML 로드 성공, 데이터 수: {len(self.all_points)}")
             return True
         except Exception as e:
             print(f">> [load_data] XML 로드 실패: {e}")

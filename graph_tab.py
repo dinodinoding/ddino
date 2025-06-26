@@ -24,6 +24,13 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+# 🔧 [추가] 네임스페이스 제거 함수
+def strip_namespace(tree):
+    for elem in tree.iter():
+        if '}' in elem.tag:
+            elem.tag = elem.tag.split('}', 1)[1]
+    return tree
+
 def parse_xml_data(xml_path, series_names):
     print(">> [parse_xml_data] XML 데이터 파싱 시작")
     if not os.path.exists(xml_path):
@@ -34,6 +41,9 @@ def parse_xml_data(xml_path, series_names):
     try:
         tree = ET.parse(xml_path)
         root = tree.getroot()
+
+        strip_namespace(tree)  # 🔧 [추가됨] 네임스페이스 제거
+
         value_data_list = root.findall('.//ValueData')
         print(f">> 전체 ValueData 블록 수: {len(value_data_list)}")
 
@@ -41,7 +51,7 @@ def parse_xml_data(xml_path, series_names):
             full_param = vd.get('Parameter') or vd.get('Prameter') or ""
             print(f"\n-- [{idx}] ValueData Parameter: {full_param}")
 
-            # 정확한 파라미터 이름 추출
+            # 🔧 [수정됨] 정규표현식으로 정확히 I-Column.파라미터만 추출
             match = re.search(r'I-Column\.([A-Za-z0-9_]+)$', full_param)
             if not match:
                 print("   ❌ 패턴 불일치 → 건너뜀")
@@ -67,6 +77,7 @@ def parse_xml_data(xml_path, series_names):
                         print(f"      ⚠️ 스킵: Timestamp 또는 Value 없음")
                         continue
 
+                    # 🔧 [보완] Z가 붙은 경우도 처리
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
                     val = float(val_text)
                     temp_points.append({'param': param_name, 'time': dt, 'value': val})
@@ -84,7 +95,6 @@ def parse_xml_data(xml_path, series_names):
 
     print(f">> [성공] 파싱된 포인트 수: {len(temp_points)}")
     return temp_points
-
 
 class GraphTab(QWidget):
     TIME_OPTIONS = {

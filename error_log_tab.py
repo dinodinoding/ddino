@@ -58,9 +58,17 @@ class ErrorLogTab(QWidget):
         layout.addWidget(self.error_view, 1)
 
         print(">> config.json 로드 시도")
-        cfg = load_config()
+        try:
+            cfg = load_config()
+        except Exception as e:
+            print(f"[에러] config 로드 실패: {e}")
+            cfg = {}
         self.error_files = cfg.get("error_logs", [])
         self.bat_path = cfg.get("batch_file", "")
+        if not self.error_files:
+            print("[경고] error_logs가 비어있음")
+        if not self.bat_path:
+            print("[경고] batch_file 경로가 비어있음")
         print(f">> 로드된 로그 파일 목록: {self.error_files}")
         print(f">> 실행할 배치 파일 경로: {self.bat_path}")
 
@@ -69,6 +77,8 @@ class ErrorLogTab(QWidget):
 
     def on_reload_clicked(self):
         print(">> [사용자 클릭] bat 실행 및 로그 재로드 요청")
+        if not self.bat_path:
+            print("[에러] batch_file 경로가 비어있음")
         if not os.path.exists(self.bat_path):
             msg = f"[오류] 배치 파일이 존재하지 않습니다: {self.bat_path}"
             self.error_view.setPlainText(msg)
@@ -84,6 +94,7 @@ class ErrorLogTab(QWidget):
             return
 
         self.reload_button.setEnabled(False)
+        print("[상태] reload_button 비활성화, 진행바 시작")
         self.stretchy_layout.setCurrentIndex(1)
         self.progress_bar.setValue(0)
         self.elapsed_time = 0
@@ -94,11 +105,13 @@ class ErrorLogTab(QWidget):
     def _update_progress(self):
         self.elapsed_time += 100
         self.progress_bar.setValue(self.elapsed_time)
+        print(f"[진행] 진행바 값: {self.elapsed_time}")
         if self.elapsed_time >= 20000:
             print(">> 진행 완료. 로그 불러오기 실행")
             self.progress_timer.stop()
             self.stretchy_layout.setCurrentIndex(0)
             self.reload_button.setEnabled(True)
+            print("[상태] reload_button 활성화")
             self.load_error_log()
 
     def load_error_log(self):
@@ -137,14 +150,19 @@ class ErrorLogTab(QWidget):
                 print(f"   !! 존재하지 않음: {path}")
                 continue
             name = os.path.basename(path)
-            with open(path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    try:
-                        ts = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
-                        latest_time = ts if latest_time is None or ts > latest_time else latest_time
-                        all_lines.append((ts, line.strip(), name))
-                    except ValueError:
-                        continue
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        try:
+                            ts = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
+                            latest_time = ts if latest_time is None or ts > latest_time else latest_time
+                            all_lines.append((ts, line.strip(), name))
+                        except ValueError:
+                            print(f"   !! 시간 파싱 실패: {line.strip()}")
+                            continue
+            except Exception as e:
+                print(f"   !! 파일 오픈 실패: {path}, 에러: {e}")
+                continue
 
         if latest_time is None:
             print(">> 유효한 로그 시간 없음")
@@ -186,6 +204,7 @@ class ErrorLogTab(QWidget):
                     )
                     html_lines.append(html_line)
             except IndexError:
+                print(f"   !! 로그 라인 파싱 실패(필드 부족): {line.strip()}")
                 continue
 
         if html_lines:
@@ -194,3 +213,4 @@ class ErrorLogTab(QWidget):
         else:
             print(">> 필터링된 로그 없음")
             self.error_view.setPlainText("해당 시간 구간의 로그가 없습니다.")
+

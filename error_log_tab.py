@@ -1,39 +1,30 @@
 import os
+import subprocess
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
     QHBoxLayout, QProgressBar, QStackedLayout, QFrame
 )
 from PySide6.QtGui import QFont
-from PySide6.QtCore import QProcess
-from utils.config_loader import load_config
-
 
 class ErrorLogTab(QWidget):
     def __init__(self):
         super().__init__()
 
-        print(">> ErrorLogTab 초기화 시작")
-
         layout = QVBoxLayout(self)
-
-        # 상단 버튼 및 진행바 레이아웃
         filter_layout = QHBoxLayout()
         layout.addLayout(filter_layout)
 
         self.stretchy_layout = QStackedLayout()
-        spacer = QFrame()
-        spacer.setFrameShape(QFrame.NoFrame)
-        self.stretchy_layout.addWidget(spacer)
+        self.stretchy_layout.addWidget(QFrame())
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # 0,0: 무한 루프 형태로 움직이는 표시
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setTextVisible(False)
         self.stretchy_layout.addWidget(self.progress_bar)
-
         filter_layout.addLayout(self.stretchy_layout, 1)
 
-        self.reload_button = QPushButton("bat 실행 후 로그 다시 불러오기")
+        self.reload_button = QPushButton("g4_converter 실행 및 로그 표시")
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
@@ -43,51 +34,51 @@ class ErrorLogTab(QWidget):
         self.error_view.setFont(QFont("Courier New"))
         layout.addWidget(self.error_view, 1)
 
-        # 설정 로드
-        try:
-            cfg = load_config()
-        except Exception as e:
-            print(f"[에러] config 로드 실패: {e}")
-            cfg = {}
-        self.error_files = cfg.get("error_logs", [])
-        self.bat_path = cfg.get("batch_file", "")
-        if not self.error_files:
-            print("[경고] error_logs가 비어있음")
-        if not self.bat_path:
-            print("[경고] batch_file 경로가 비어있음")
-        print(f">> 로드된 로그 파일 목록: {self.error_files}")
-        print(f">> 실행할 배치 파일 경로: {self.bat_path}")
+        # 고정 경로 설정
+        self.converter_path = "C:/monitoring/g4_converter.exe"
+        self.convert_list_path = "C:/monitoring/convert_list.txt"
+        self.output_dir = "C:/monitoring/errorlog"
 
-        # QProcess 준비
-        self.process = QProcess(self)
-        self.process.finished.connect(self.on_process_finished)
-
-        print(">> ErrorLogTab 초기화 완료")
+        self.error_files = []
 
     def on_reload_clicked(self):
-        print(">> [사용자 클릭] bat 실행 및 로그 재로드 요청")
-        if not self.bat_path or not os.path.exists(self.bat_path):
-            msg = f"[오류] 배치 파일이 존재하지 않습니다: {self.bat_path}"
-            self.error_view.setPlainText(msg)
-            print(msg)
-            return
-
         self.reload_button.setEnabled(False)
-        self.stretchy_layout.setCurrentIndex(1)  # 프로그래스 바 표시
-        try:
-            self.process.start(self.bat_path)
-            print(f">> bat 실행 시작: {self.bat_path}")
-        except Exception as e:
-            print(f"[예외] bat 실행 실패: {e}")
-            self.error_view.setPlainText(f"bat 실행 실패: {e}")
-            self.reload_button.setEnabled(True)
-            self.stretchy_layout.setCurrentIndex(0)
+        self.stretchy_layout.setCurrentIndex(1)
 
-    def on_process_finished(self):
-        print(">> bat 실행 완료됨 - 로그 로드 시작")
-        self.load_error_log()
-        self.stretchy_layout.setCurrentIndex(0)  # 프로그래스 바 숨김
+        self.error_files = self.convert_all_files_from_list()
+        if self.error_files:
+            self.load_error_log()
+        else:
+            self.error_view.setPlainText("⚠️ 변환된 로그 파일이 없습니다.")
+
+        self.stretchy_layout.setCurrentIndex(0)
         self.reload_button.setEnabled(True)
+
+    def convert_all_files_from_list(self):
+        if not os.path.exists(self.convert_list_path):
+            print("❌ convert_list.txt가 존재하지 않음")
+            return []
+
+        with open(self.convert_list_path, 'r', encoding='utf-8') as f:
+            log_files = [line.strip() for line in f if line.strip()]
+
+        converted_paths = []
+        for log_path in log_files:
+            if not os.path.exists(log_path):
+                print(f"❌ 파일 없음: {log_path}")
+                continue
+
+            base_name = os.path.basename(log_path).replace(".log", ".txt")
+            out_path = os.path.join(self.output_dir, base_name)
+
+            print(f">> 변환: {log_path} -> {out_path}")
+            result = subprocess.run([self.converter_path, log_path, out_path])
+            if result.returncode == 0:
+                converted_paths.append(out_path)
+            else:
+                print(f"❌ 변환 실패: {log_path}")
+
+        return converted_paths
 
     def try_parse_time(self, text):
         for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
@@ -98,36 +89,24 @@ class ErrorLogTab(QWidget):
         return None
 
     def load_error_log(self):
-        print(">> 로그 로드 시작")
         self.error_view.clear()
-
         if not self.error_files:
             self.error_view.setPlainText("에러 로그 파일이 지정되지 않았습니다.")
             return
 
-        # 무조건 기간은 1일
         time_range = timedelta(days=1)
-
-        try:
-            max_len = max(len(f"[{os.path.basename(p)}]") for p in self.error_files)
-            file_col_width = max_len + 2
-        except Exception as e:
-            print(f"[경고] 파일명 길이 계산 실패: {e}")
-            file_col_width = 20
-
         all_lines = []
         latest_time = None
 
         for path in self.error_files:
             if not os.path.exists(path):
-                print(f"!! 로그 파일 없음: {path}")
                 continue
             name = os.path.basename(path)
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.lower().startswith("time pid tid"):
-                            continue  # 헤더 스킵
+                            continue
                         parts = line.strip().split(None, 6)
                         if len(parts) < 7:
                             continue
@@ -141,16 +120,15 @@ class ErrorLogTab(QWidget):
                         latest_time = ts if latest_time is None or ts > latest_time else latest_time
                         all_lines.append((ts, lvl, msg, name))
             except Exception as e:
-                print(f"!! 파일 처리 중 예외: {e}")
+                print(f"파일 처리 오류: {e}")
                 continue
 
         if latest_time is None:
-            self.error_view.setPlainText("로그에서 유효한 시간 정보를 찾을 수 없습니다.")
+            self.error_view.setPlainText("유효한 시간 정보 없음")
             return
 
         cutoff = latest_time - time_range
-        levels = ['error', 'warning']  # 무조건 포함
-
+        levels = ['error', 'warning']
         html_lines = []
 
         for ts, lvl, msg, name in sorted(all_lines, key=lambda x: x[0], reverse=True):
@@ -162,10 +140,9 @@ class ErrorLogTab(QWidget):
                 "error": '<span style="color:red;">ERROR</span>',
                 "warning": '<span style="color:orange;">WARNING</span>'
             }.get(lvl, lvl.upper())
-
             html_lines.append(
                 f'<span style="color:black; font-family:Courier New;">'
-                f'{file_col:<{file_col_width}}{ts_str:<25}'
+                f'{file_col:<30}{ts_str:<25}'
                 f'{level_colored:<10}{msg}</span>'
             )
 

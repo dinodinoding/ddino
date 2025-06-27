@@ -3,9 +3,10 @@ import subprocess
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
-    QHBoxLayout, QProgressBar, QStackedLayout, QFrame
+    QHBoxLayout, QProgressBar
 )
 from PySide6.QtGui import QFont
+
 
 class ErrorLogTab(QWidget):
     def __init__(self):
@@ -15,35 +16,35 @@ class ErrorLogTab(QWidget):
         filter_layout = QHBoxLayout()
         layout.addLayout(filter_layout)
 
-        self.stretchy_layout = QStackedLayout()
-        self.stretchy_layout.addWidget(QFrame())
-
+        # === [1] 수평 진행바 (버튼 왼쪽) === #
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setRange(0, 0)  # 무한 로딩 애니메이션
         self.progress_bar.setTextVisible(False)
-        self.stretchy_layout.addWidget(self.progress_bar)
-        filter_layout.addLayout(self.stretchy_layout, 1)
+        self.progress_bar.setFixedHeight(10)
+        self.progress_bar.hide()  # 초기에는 안 보이게
+        filter_layout.addWidget(self.progress_bar, 1)
 
+        # === [2] 변환 실행 버튼 === #
         self.reload_button = QPushButton("g4_converter 실행 및 로그 표시")
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
+        # === [3] 로그 출력 영역 === #
         layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
         self.error_view.setReadOnly(True)
         self.error_view.setFont(QFont("Courier New"))
         layout.addWidget(self.error_view, 1)
 
-        # 고정 경로 설정
+        # === [4] 고정 경로 설정 === #
         self.converter_path = "C:/monitoring/g4_converter.exe"
         self.convert_list_path = "C:/monitoring/convert_list.txt"
         self.output_dir = "C:/monitoring/errorlog"
-
         self.error_files = []
 
     def on_reload_clicked(self):
         self.reload_button.setEnabled(False)
-        self.stretchy_layout.setCurrentIndex(1)
+        self.progress_bar.show()
 
         self.error_files = self.convert_all_files_from_list()
         if self.error_files:
@@ -51,7 +52,7 @@ class ErrorLogTab(QWidget):
         else:
             self.error_view.setPlainText("⚠️ 변환된 로그 파일이 없습니다.")
 
-        self.stretchy_layout.setCurrentIndex(0)
+        self.progress_bar.hide()
         self.reload_button.setEnabled(True)
 
     def convert_all_files_from_list(self):

@@ -79,9 +79,14 @@ class GraphTab(QWidget):
     }
 
     GRAPH_DEFINITIONS = [
-        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None, "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
-        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000), "series": ['ACC', 'EXT', 'LENS1', 'Supp']},
-        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50), "series": ['ACC_Leakage', 'Emission_current', 'Lens1_Leakage', 'Supp_Leakage']}
+        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None,
+         "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
+
+        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000),
+         "series": ['ACC_V', 'EXT_v', 'LENS1_V']},
+
+        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50),
+         "series": ['ACC_L', 'Emission', 'LENS1_L']}
     ]
 
     def __init__(self):
@@ -161,19 +166,21 @@ class GraphTab(QWidget):
         ax.clear()
         has_data = False
         for name in definition["series"]:
+            display_name = name
             points = series_data.get(name, [])
             if points:
                 points.sort(key=lambda x: x[0])
                 times, values = zip(*points)
-                ax.plot(times, values, label=name, marker='.', linestyle='-', markersize=3)
+
+                # Emission만 단위 보정 (A → uA)
+                if name == "Emission":
+                    values = [v * 1e6 for v in values]
+                    display_name += " (scaled)"
+
+                ax.plot(times, values, label=display_name, marker='.', linestyle='-', markersize=3)
                 has_data = True
             else:
-                ax.plot([], [], label=name)  # 빈 선이라도 범례에 표시
-
-        if not has_data:
-            ax.text(0.5, 0.5, 'No data in this period',
-                    transform=ax.transAxes, ha='center', va='center',
-                    fontsize=12, color='gray')
+                ax.plot([], [], label=display_name)
 
         ax.set_ylabel(definition["y_label"])
         ax.set_yscale(definition["y_scale"])

@@ -36,7 +36,7 @@ def parse_xml_data(xml_path, param_map):
         for vd in root.findall('.//ValueData'):
             param_id = vd.attrib.get("ParameterID", "")
             if param_id not in param_map:
-                print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}")
+                print(f">> [스필] parameter_map에 없음 → 제외됨: {param_id}")
                 continue
 
             param_name = param_map[param_id]
@@ -61,9 +61,9 @@ def parse_xml_data(xml_path, param_map):
                     val = float(val_node.text)
                     temp_points.append({'param': param_name, 'time': dt, 'value': val})
                 except Exception as e:
-                    print(f"   !! 파싱 예외: {e} (param={param_name})")
+                    print(f"   !! 파싱 예제: {e} (param={param_name})")
     except Exception as e:
-        print(f">> [오류] XML 파싱 중 예외 발생: {e}")
+        print(f">> [오류] XML 파싱 중 예제 발생: {e}")
         raise e
 
     if not temp_points:
@@ -97,7 +97,6 @@ class GraphTab(QWidget):
 
         self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
         self.all_points = []
-        self.update_display(force_reload=True)
 
     def _setup_controls(self, main_layout):
         controls_layout = QHBoxLayout()
@@ -132,7 +131,7 @@ class GraphTab(QWidget):
 
     def update_display(self, force_reload=False):
         if force_reload or not self.all_points:
-            self.status_label.setText("XML 데이터 로딩 중...")
+            self.status_label.setText("XML 데이터 로드 중...")
             if not self._load_data_from_xml():
                 for ax in self.axes:
                     ax.clear()
@@ -160,11 +159,22 @@ class GraphTab(QWidget):
 
     def plot_single_graph(self, ax, series_data, definition):
         ax.clear()
-        for name, points in series_data.items():
+        has_data = False
+        for name in definition["series"]:
+            points = series_data.get(name, [])
             if points:
                 points.sort(key=lambda x: x[0])
                 times, values = zip(*points)
                 ax.plot(times, values, label=name, marker='.', linestyle='-', markersize=3)
+                has_data = True
+            else:
+                ax.plot([], [], label=name)  # 빈 선이라도 범례에 표시
+
+        if not has_data:
+            ax.text(0.5, 0.5, 'No data in this period',
+                    transform=ax.transAxes, ha='center', va='center',
+                    fontsize=12, color='gray')
+
         ax.set_ylabel(definition["y_label"])
         ax.set_yscale(definition["y_scale"])
         if definition["y_range"]:
@@ -173,14 +183,13 @@ class GraphTab(QWidget):
             ax.yaxis.set_major_locator(LogLocator(base=10))
             ax.yaxis.set_major_formatter(FormatStrFormatter('%.1e'))
         ax.grid(True, which="both", ls="--", alpha=0.6)
-        if any(series_data.values()):
-            ax.legend(loc='upper left', fontsize='small')
+        ax.legend(loc='upper left', fontsize='small')
 
     def on_refresh_clicked(self):
         if not self.bat_path or not os.path.exists(self.bat_path):
             self.status_label.setText(f"배치 파일이 존재하지 않습니다: {self.bat_path}")
             return
-        self.status_label.setText("배치 파일 실행 중... 3초 대기합니다.")
+        self.status_label.setText("배치 파일 실행 중... 3초 기다린다.")
         subprocess.Popen(self.bat_path, shell=True)
         self.stretchy_layout.setCurrentIndex(1)
         self.progress_bar.setValue(0)

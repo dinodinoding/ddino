@@ -2,8 +2,7 @@ import os
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
-    QHBoxLayout, QComboBox, QCheckBox, QProgressBar,
-    QStackedLayout, QFrame
+    QHBoxLayout, QProgressBar, QStackedLayout, QFrame
 )
 from PySide6.QtGui import QFont
 from PySide6.QtCore import QTimer
@@ -19,19 +18,9 @@ class ErrorLogTab(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # 상단 필터 옵션
+        # 상단 버튼 및 진행바 레이아웃
         filter_layout = QHBoxLayout()
         layout.addLayout(filter_layout)
-
-        filter_layout.addWidget(QLabel("기간 선택:"))
-        self.time_combo = QComboBox()
-        self.time_combo.addItems(["30분", "1시간", "6시간", "12시간", "1일"])
-        self.time_combo.currentTextChanged.connect(self.load_error_log)
-        filter_layout.addWidget(self.time_combo)
-
-        self.include_warning = QCheckBox("Warning 포함")
-        self.include_warning.stateChanged.connect(self.load_error_log)
-        filter_layout.addWidget(self.include_warning)
 
         self.stretchy_layout = QStackedLayout()
         spacer = QFrame()
@@ -49,7 +38,7 @@ class ErrorLogTab(QWidget):
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
-        layout.addWidget(QLabel("선택한 기간의 오류/경고 로그:"))
+        layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
         self.error_view.setReadOnly(True)
         self.error_view.setFont(QFont("Courier New"))
@@ -70,7 +59,6 @@ class ErrorLogTab(QWidget):
         print(f">> 로드된 로그 파일 목록: {self.error_files}")
         print(f">> 실행할 배치 파일 경로: {self.bat_path}")
 
-        self.load_error_log()
         print(">> ErrorLogTab 초기화 완료")
 
     def on_reload_clicked(self):
@@ -122,15 +110,8 @@ class ErrorLogTab(QWidget):
             self.error_view.setPlainText("에러 로그 파일이 지정되지 않았습니다.")
             return
 
-        selected = self.time_combo.currentText()
-        delta_map = {
-            "30분": timedelta(minutes=30),
-            "1시간": timedelta(hours=1),
-            "6시간": timedelta(hours=6),
-            "12시간": timedelta(hours=12),
-            "1일": timedelta(days=1),
-        }
-        time_range = delta_map.get(selected, timedelta(minutes=30))
+        # 무조건 기간은 1일
+        time_range = timedelta(days=1)
 
         try:
             max_len = max(len(f"[{os.path.basename(p)}]") for p in self.error_files)
@@ -173,13 +154,10 @@ class ErrorLogTab(QWidget):
             return
 
         cutoff = latest_time - time_range
-        levels = ['error']
-        if self.include_warning.isChecked():
-            levels.append('warning')
+        levels = ['error', 'warning']  # 무조건 포함
 
         html_lines = []
 
-        # ✅ 최신순 정렬 (내림차순)
         for ts, lvl, msg, name in sorted(all_lines, key=lambda x: x[0], reverse=True):
             if ts < cutoff or lvl not in levels:
                 continue

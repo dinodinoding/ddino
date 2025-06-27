@@ -5,9 +5,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QProgressBar, QStackedLayout, QFrame
 )
 from PySide6.QtGui import QFont
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QProcess
 from utils.config_loader import load_config
-import subprocess
 
 
 class ErrorLogTab(QWidget):
@@ -28,8 +27,8 @@ class ErrorLogTab(QWidget):
         self.stretchy_layout.addWidget(spacer)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 20000)
-        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setRange(0, 0)  # 0,0: 무한 루프 형태로 움직이는 표시
+        self.progress_bar.setTextVisible(False)
         self.stretchy_layout.addWidget(self.progress_bar)
 
         filter_layout.addLayout(self.stretchy_layout, 1)
@@ -59,6 +58,10 @@ class ErrorLogTab(QWidget):
         print(f">> 로드된 로그 파일 목록: {self.error_files}")
         print(f">> 실행할 배치 파일 경로: {self.bat_path}")
 
+        # QProcess 준비
+        self.process = QProcess(self)
+        self.process.finished.connect(self.on_process_finished)
+
         print(">> ErrorLogTab 초기화 완료")
 
     def on_reload_clicked(self):
@@ -69,30 +72,22 @@ class ErrorLogTab(QWidget):
             print(msg)
             return
 
+        self.reload_button.setEnabled(False)
+        self.stretchy_layout.setCurrentIndex(1)  # 프로그래스 바 표시
         try:
-            subprocess.Popen(self.bat_path, shell=True)
-            print(f">> bat 실행: {self.bat_path}")
+            self.process.start(self.bat_path)
+            print(f">> bat 실행 시작: {self.bat_path}")
         except Exception as e:
             print(f"[예외] bat 실행 실패: {e}")
             self.error_view.setPlainText(f"bat 실행 실패: {e}")
-            return
-
-        self.reload_button.setEnabled(False)
-        self.stretchy_layout.setCurrentIndex(1)
-        self.progress_bar.setValue(0)
-        self.elapsed_time = 0
-        self.progress_timer = QTimer(self)
-        self.progress_timer.timeout.connect(self._update_progress)
-        self.progress_timer.start(100)
-
-    def _update_progress(self):
-        self.elapsed_time += 100
-        self.progress_bar.setValue(self.elapsed_time)
-        if self.elapsed_time >= 20000:
-            self.progress_timer.stop()
-            self.stretchy_layout.setCurrentIndex(0)
             self.reload_button.setEnabled(True)
-            self.load_error_log()
+            self.stretchy_layout.setCurrentIndex(0)
+
+    def on_process_finished(self):
+        print(">> bat 실행 완료됨 - 로그 로드 시작")
+        self.load_error_log()
+        self.stretchy_layout.setCurrentIndex(0)  # 프로그래스 바 숨김
+        self.reload_button.setEnabled(True)
 
     def try_parse_time(self, text):
         for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):

@@ -13,30 +13,31 @@ class ErrorLogTab(QWidget):
         super().__init__()
 
         layout = QVBoxLayout(self)
+
+        # 상단 레이아웃 (진행률 + 버튼)
         filter_layout = QHBoxLayout()
         layout.addLayout(filter_layout)
 
-        # === [1] 수평 진행바 (버튼 왼쪽) === #
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # 무한 로딩 애니메이션
-        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setTextVisible(True)
         self.progress_bar.setFixedHeight(10)
-        self.progress_bar.hide()  # 초기에는 안 보이게
-        filter_layout.addWidget(self.progress_bar, 1)
+        self.progress_bar.setFixedWidth(200)
+        self.progress_bar.hide()
+        filter_layout.addWidget(self.progress_bar)
 
-        # === [2] 변환 실행 버튼 === #
+        filter_layout.addSpacing(10)
+
         self.reload_button = QPushButton("g4_converter 실행 및 로그 표시")
+        self.reload_button.setMinimumWidth(200)
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
-        # === [3] 로그 출력 영역 === #
         layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
         self.error_view.setReadOnly(True)
         self.error_view.setFont(QFont("Courier New"))
         layout.addWidget(self.error_view, 1)
 
-        # === [4] 고정 경로 설정 === #
         self.converter_path = "C:/monitoring/g4_converter.exe"
         self.convert_list_path = "C:/monitoring/convert_list.txt"
         self.output_dir = "C:/monitoring/errorlog"
@@ -45,8 +46,10 @@ class ErrorLogTab(QWidget):
     def on_reload_clicked(self):
         self.reload_button.setEnabled(False)
         self.progress_bar.show()
+        self.progress_bar.setValue(0)
 
         self.error_files = self.convert_all_files_from_list()
+
         if self.error_files:
             self.load_error_log()
         else:
@@ -63,23 +66,34 @@ class ErrorLogTab(QWidget):
         with open(self.convert_list_path, 'r', encoding='utf-8') as f:
             log_files = [line.strip() for line in f if line.strip()]
 
+        total_files = len(log_files)
+        self.total_steps = total_files * 2  # 변환 + 로딩
+        self.progress_bar.setRange(0, self.total_steps)
+        self.current_step = 0
+
         converted_paths = []
         for log_path in log_files:
             if not os.path.exists(log_path):
                 print(f"❌ 파일 없음: {log_path}")
+                self._increment_progress()
                 continue
 
             base_name = os.path.basename(log_path).replace(".log", ".txt")
             out_path = os.path.join(self.output_dir, base_name)
 
-            print(f">> 변환: {log_path} -> {out_path}")
             result = subprocess.run([self.converter_path, log_path, out_path])
             if result.returncode == 0:
                 converted_paths.append(out_path)
             else:
                 print(f"❌ 변환 실패: {log_path}")
 
+            self._increment_progress()
+
         return converted_paths
+
+    def _increment_progress(self):
+        self.current_step += 1
+        self.progress_bar.setValue(self.current_step)
 
     def try_parse_time(self, text):
         for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
@@ -100,8 +114,11 @@ class ErrorLogTab(QWidget):
         latest_time = None
 
         for path in self.error_files:
+            self._increment_progress()
+
             if not os.path.exists(path):
                 continue
+
             name = os.path.basename(path)
             try:
                 with open(path, 'r', encoding='utf-8') as f:

@@ -2,220 +2,290 @@ import os
 import subprocess
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QComboBox,
-    QStackedLayout, QFrame
+    QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
+    QHBoxLayout, QProgressBar, QFrame, QMessageBox
 )
-from PySide6.QtCore import QTimer
-import xml.etree.ElementTree as ET
+from PySide6.QtGui import QFont
 
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5 import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.ticker import LogLocator, FormatStrFormatter
-
-from utils.config_loader import load_config
-
-
-def strip_namespace(tree):
-    for elem in tree.iter():
-        if '}' in elem.tag:
-            elem.tag = elem.tag.split('}', 1)[1]
-
-
-def parse_xml_data(xml_path, param_map):
-    print(">> [parse_xml_data] XML 데이터 파싱 시작")
-    if not os.path.exists(xml_path):
-        raise FileNotFoundError(f"XML 로그 파일을 찾을 수 없습니다: {xml_path}")
-
-    temp_points = []
-    try:
-        tree = ET.parse(xml_path)
-        strip_namespace(tree)
-        root = tree.getroot()
-        for vd in root.findall('.//ValueData'):
-            param_id = vd.attrib.get("ParameterID", "")
-            if param_id not in param_map:
-                print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}")
-                continue
-
-            param_name = param_map[param_id]
-            param_values = []
-
-            for child in vd:
-                tag = child.tag.lower()
-                if tag == "parametervalues":
-                    param_values.extend(child.findall("ParameterValue"))
-                elif tag == "parametervalue":
-                    param_values.append(child)
-
-            print(f"ParameterID: {param_id} → {param_name}, 값 수: {len(param_values)}")
-
-            for pv in param_values:
-                try:
-                    ts = pv.get("Timestamp")
-                    val_node = pv.find("Value")
-                    if ts is None or val_node is None or val_node.text is None:
-                        continue
-                    dt = datetime.fromisoformat(ts).replace(tzinfo=None)
-                    val = float(val_node.text)
-                    temp_points.append({'param': param_name, 'time': dt, 'value': val})
-                except Exception as e:
-                    print(f"   !! 파싱 예외: {e} (param={param_name})")
-    except Exception as e:
-        print(f">> [오류] XML 파싱 중 예외 발생: {e}")
-        raise e
-
-    if not temp_points:
-        raise ValueError("XML 파일에 유효한 데이터를 찾을 수 없습니다.")
-    return temp_points
-
-
-class GraphTab(QWidget):
-    TIME_OPTIONS = {
-        "30분": timedelta(minutes=30), "1시간": timedelta(hours=1),
-        "6시간": timedelta(hours=6), "12시간": timedelta(hours=12),
-        "하루": timedelta(days=1),
-    }
-
-    GRAPH_DEFINITIONS = [
-        {"y_label": "Pressure (Pa)", "y_scale": "log", "y_range": None,
-         "series": ['IGP1', 'IGP2', 'IGP3', 'IGP4', 'HVG']},
-
-        {"y_label": "Voltage (V)", "y_scale": "linear", "y_range": (0, 35000),
-         "series": ['ACC_V', 'EXT_v', 'LENS1_V']},
-
-        {"y_label": "Current (uA)", "y_scale": "linear", "y_range": (0, 50),
-         "series": ['ACC_L', 'Emission', 'LENS1_L']}
-    ]
-
+class ErrorLogTab(QWidget):
     def __init__(self):
         super().__init__()
+
         layout = QVBoxLayout(self)
-        self._setup_controls(layout)
-        self._setup_graph_area(layout)
 
-        cfg = load_config()
-        self.xml_log_path = cfg.get("xml_log", "")
-        self.bat_path = cfg.get("batch_file", "")
-        self.param_map = cfg.get("parameter_map", {})
+        # 설명 라벨 추가
+        self.description_label = QLabel(
+            "이 탭은 g4_converter.exe를 실행하여 지정된 로그 파일을 변환하고, "
+            "변환된 파일에서 최근 24시간 이내의 오류(ERROR) 및 경고(WARNING) 로그를 표시합니다. "
+            "로그 파일은 'C:/monitoring/convert_list.txt'에 나열되어 있어야 합니다."
+        )
+        self.description_label.setWordWrap(True)
+        layout.addWidget(self.description_label)
 
-        self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
-        self.all_points = []
+        # 상단 레이아웃 (진행률 + 버튼)
+        filter_layout = QHBoxLayout()
+        layout.addLayout(filter_layout)
 
-    def _setup_controls(self, main_layout):
-        controls_layout = QHBoxLayout()
-        controls_layout.addWidget(QLabel("기간 선택:"))
-        self.time_combo = QComboBox()
-        self.time_combo.addItems(list(self.TIME_OPTIONS.keys()))
-        self.time_combo.setCurrentText("30분")
-        self.time_combo.currentTextChanged.connect(self.update_display)
-        controls_layout.addWidget(self.time_combo)
-
-        self.stretchy_layout = QStackedLayout()
-        self.stretchy_layout.addWidget(QFrame())  # Spacer
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 3000)
-        self.progress_bar.setTextVisible(False)
-        self.stretchy_layout.addWidget(self.progress_bar)
-        controls_layout.addLayout(self.stretchy_layout, 1)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFixedHeight(10)
+        filter_layout.addWidget(self.progress_bar, stretch=1)
 
-        self.refresh_button = QPushButton("로그 생성 및 새로고침")
-        self.refresh_button.clicked.connect(self.on_refresh_clicked)
-        controls_layout.addWidget(self.refresh_button)
-        main_layout.addLayout(controls_layout)
+        self.reload_button = QPushButton("g4_converter 실행 및 로그 표시")
+        self.reload_button.setFixedWidth(200) # 버튼 너비 조정
+        self.reload_button.clicked.connect(self.on_reload_clicked)
+        filter_layout.addWidget(self.reload_button)
 
-    def _setup_graph_area(self, main_layout):
-        self.figure = Figure(figsize=(10, 9), constrained_layout=True)
-        self.canvas = FigureCanvas(self.figure)
-        self.axes = self.figure.subplots(nrows=3, ncols=1, sharex=True)
-        main_layout.addWidget(NavigationToolbar(self.canvas, self))
-        main_layout.addWidget(self.canvas)
-        self.status_label = QLabel("")
-        main_layout.addWidget(self.status_label)
+        layout.addWidget(QLabel("오류/경고 로그 보기:"))
+        self.error_view = QTextEdit()
+        self.error_view.setReadOnly(True)
+        self.error_view.setFont(QFont("Courier New"))
+        layout.addWidget(self.error_view, 1)
 
-    def update_display(self):
-        print(f">> [DEBUG] update_display called | all_points={len(self.all_points)}")
+        # 경로 세팅
+        self.converter_path = "C:/monitoring/g4_converter.exe"
+        self.convert_list_path = "C:/monitoring/convert_list.txt"
+        self.output_dir = "C:/monitoring/errorlog"
+        self.error_files = []
 
-        if not self.all_points:
-            self.status_label.setText("표시할 데이터가 없습니다.")
-            for ax in self.axes:
-                ax.clear()
-            self.canvas.draw()
-            return
+        # 시작 시 디렉토리 존재 여부 확인 및 생성
+        self._ensure_output_directory_exists()
 
-        dmax = max(p['time'] for p in self.all_points)
-        selected_delta = self.TIME_OPTIONS[self.time_combo.currentText()]
-        cutoff_time = dmax - selected_delta
-
-        for i, ax in enumerate(self.axes):
-            definition = self.GRAPH_DEFINITIONS[i]
-            data_for_this_graph = {name: [] for name in definition["series"]}
-            for point in self.all_points:
-                if point['time'] >= cutoff_time and point['param'] in definition["series"]:
-                    data_for_this_graph[point['param']].append((point['time'], point['value']))
-            self.plot_single_graph(ax, data_for_this_graph, definition)
-
-        self.status_label.setText("그래프 업데이트 완료.")
-        self.canvas.draw()
-
-    def plot_single_graph(self, ax, series_data, definition):
-        ax.clear()
-        has_data = False
-        for name in definition["series"]:
-            display_name = name
-            points = series_data.get(name, [])
-            if points:
-                points.sort(key=lambda x: x[0])
-                times, values = zip(*points)
-
-                if name == "Emission":
-                    values = [v * 1e6 for v in values]
-                    display_name += " (scaled)"
-
-                ax.plot(times, values, label=display_name, marker='.', linestyle='-', markersize=3)
-                has_data = True
-            else:
-                ax.plot([], [], label=display_name)
-
-        ax.set_ylabel(definition["y_label"])
-        ax.set_yscale(definition["y_scale"])
-        if definition["y_range"]:
-            ax.set_ylim(definition["y_range"])
-        if definition["y_scale"] == 'log':
-            ax.yaxis.set_major_locator(LogLocator(base=10))
-            ax.yaxis.set_major_formatter(FormatStrFormatter('%.1e'))
-        ax.grid(True, which="both", ls="--", alpha=0.6)
-        ax.legend(loc='upper left', fontsize='small')
-
-    def on_refresh_clicked(self):
-        if not self.bat_path or not os.path.exists(self.bat_path):
-            self.status_label.setText(f"배치 파일이 존재하지 않습니다: {self.bat_path}")
-            return
-
-        self.status_label.setText("배치 파일 실행 중... 3초 기다린다.")
-        subprocess.Popen(self.bat_path, shell=True)
-        self.stretchy_layout.setCurrentIndex(1)
-        self.progress_bar.setValue(0)
-        self.elapsed = 0
-        self.refresh_button.setEnabled(False)
-        self.progress_timer = QTimer(self)
-        self.progress_timer.timeout.connect(self._update_progress)
-        self.progress_timer.start(100)
-
-    def _update_progress(self):
-        self.elapsed += 100
-        self.progress_bar.setValue(self.elapsed)
-        if self.elapsed >= 3000:
-            self.progress_timer.stop()
-            self.stretchy_layout.setCurrentIndex(0)
-            self.refresh_button.setEnabled(True)
-
-            # 여기서만 XML 데이터 로드
+    def _ensure_output_directory_exists(self):
+        """출력 디렉토리가 존재하는지 확인하고, 없으면 생성합니다."""
+        if not os.path.exists(self.output_dir):
             try:
-                print(">> [DEBUG] Reloading XML data after .bat")
-                self.all_points = parse_xml_data(self.xml_log_path, self.param_map)
-                self.update_display()
+                os.makedirs(self.output_dir)
+                print(f"✅ 출력 디렉토리 생성: {self.output_dir}")
+            except OSError as e:
+                QMessageBox.critical(self, "디렉토리 생성 오류",
+                                     f"출력 디렉토리 '{self.output_dir}'를 생성할 수 없습니다: {e}\n"
+                                     "프로그램 실행에 문제가 있을 수 있습니다.")
+                print(f"❌ 출력 디렉토리 생성 실패: {e}")
+
+    def on_reload_clicked(self):
+        self.reload_button.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.error_view.clear() # 새 작업 시작 전 기존 로그 지우기
+
+        # 변환기 실행 파일 존재 여부 확인
+        if not os.path.exists(self.converter_path):
+            QMessageBox.critical(self, "파일 없음",
+                                 f"g4_converter.exe를 찾을 수 없습니다: {self.converter_path}\n"
+                                 "경로를 확인하거나 파일을 배치해주세요.")
+            self.error_view.setPlainText(f"❌ 에러: g4_converter.exe 파일이 '{self.converter_path}' 경로에 존재하지 않습니다.")
+            self.reload_button.setEnabled(True)
+            return
+
+        self.error_files = self.convert_all_files_from_list()
+
+        if self.error_files:
+            self.load_error_log()
+        else:
+            self.error_view.setPlainText("⚠️ 변환된 로그 파일이 없거나, 변환 과정에서 문제가 발생했습니다.")
+
+        self.reload_button.setEnabled(True)
+
+    def convert_all_files_from_list(self):
+        if not os.path.exists(self.convert_list_path):
+            QMessageBox.warning(self, "파일 없음",
+                                f"convert_list.txt를 찾을 수 없습니다: {self.convert_list_path}")
+            print(f"❌ convert_list.txt가 존재하지 않음: {self.convert_list_path}")
+            return []
+
+        with open(self.convert_list_path, 'r', encoding='utf-8') as f:
+            log_files = [line.strip() for line in f if line.strip()]
+
+        if not log_files:
+            self.error_view.setPlainText("ℹ️ convert_list.txt 파일에 변환할 로그 파일 경로가 없습니다.")
+            return []
+
+        total_files = len(log_files)
+        # 변환 + 로딩 (변환 실패 파일도 로딩 단계에 포함될 수 있으므로, 총 단계는 동일하게 유지)
+        self.total_steps = total_files * 2
+        self.progress_bar.setRange(0, self.total_steps)
+        self.current_step = 0
+
+        converted_paths = []
+        for i, log_path in enumerate(log_files):
+            # 변환 진행률 메시지 업데이트
+            self.error_view.setPlainText(f"변환 중... ({i+1}/{total_files}): {os.path.basename(log_path)}")
+            QApplication.processEvents() # UI 업데이트 강제
+
+            if not os.path.exists(log_path):
+                print(f"❌ 원본 파일 없음: {log_path}")
+                self._increment_progress()
+                continue
+
+            base_name = os.path.basename(log_path).replace(".log", ".txt")
+            out_path = os.path.join(self.output_dir, base_name)
+
+            try:
+                # subprocess.run 호출 시 stdout, stderr 캡처 및 텍스트 모드 사용
+                # shell=False는 권장되는 보안 방식 (명령어 리스트 형태로 전달)
+                # cwd는 converter.exe가 실행될 작업 디렉토리를 명시적으로 설정
+                result = subprocess.run(
+                    [self.converter_path, log_path, out_path],
+                    capture_output=True,
+                    text=True, # 텍스트 모드로 출력 캡처
+                    check=False, # 반환 코드가 0이 아니어도 예외를 발생시키지 않음
+                    encoding='utf-8' # 인코딩 명시
+                    # cwd=os.path.dirname(self.converter_path) # converter.exe 경로를 작업 디렉토리로 설정
+                                                               # 필요한 경우 주석 해제
+                )
+
+                if result.returncode == 0:
+                    converted_paths.append(out_path)
+                    print(f"✅ 변환 성공: {log_path} -> {out_path}")
+                else:
+                    error_message = result.stderr or result.stdout or "알 수 없는 오류"
+                    print(f"❌ 변환 실패 (Return Code: {result.returncode}): {log_path}\n"
+                          f"   출력/에러: {error_message.strip()}")
+                    # 변환 실패 메시지를 UI에 잠시 표시 (옵션)
+                    self.error_view.setPlainText(f"❌ 변환 실패: {os.path.basename(log_path)}\n{error_message.strip()}")
+                    QApplication.processEvents() # UI 업데이트 강제
+
+            except FileNotFoundError:
+                QMessageBox.critical(self, "실행 파일 없음",
+                                     f"g4_converter.exe를 찾을 수 없습니다: {self.converter_path}")
+                print(f"❌ g4_converter.exe 실행 파일 찾을 수 없음: {self.converter_path}")
             except Exception as e:
-                self.status_label.setText(str(e))
-                self.all_points = []
-                self.update_display()
+                QMessageBox.critical(self, "변환 중 오류",
+                                     f"파일 '{os.path.basename(log_path)}' 변환 중 예외 발생: {e}")
+                print(f"❌ 변환 중 예외 발생: {e}")
+
+            self._increment_progress() # 변환 성공/실패 여부와 관계없이 진행률 업데이트
+
+        return converted_paths
+
+    def _increment_progress(self):
+        self.current_step += 1
+        self.progress_bar.setValue(self.current_step)
+        QApplication.processEvents() # UI 업데이트 강제
+
+    def try_parse_time(self, text):
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text.strip(), fmt)
+            except ValueError:
+                continue
+        return None
+
+    def load_error_log(self):
+        self.error_view.clear()
+        if not self.error_files:
+            self.error_view.setPlainText("에러 로그 파일이 지정되지 않았습니다.")
+            return
+
+        time_range = timedelta(days=1) # 최근 24시간
+        all_lines = []
+        latest_time = None
+
+        total_processed_files = 0
+        for path in self.error_files:
+            # 로딩 진행률 메시지 업데이트
+            self.error_view.setPlainText(f"로그 로딩 및 분석 중... ({total_processed_files+1}/{len(self.error_files)}): {os.path.basename(path)}")
+            QApplication.processEvents() # UI 업데이트 강제
+
+            self._increment_progress() # 로딩 단계 진행률 업데이트
+
+            if not os.path.exists(path):
+                print(f"❌ 변환된 파일 없음 (로딩 스킵): {path}")
+                total_processed_files += 1
+                continue
+
+            name = os.path.basename(path)
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f: # 인코딩 오류 무시
+                    for line in f:
+                        # "Time Pid Tid" 헤더 라인 스킵
+                        if line.lower().startswith("time pid tid"):
+                            continue
+                        
+                        parts = line.strip().split(None, 6) # 최대 6번 분리 (나머지는 메시지)
+                        
+                        # 최소한의 필드가 있는지 확인 (Time, Pid, Tid, Level, Module, Function, Message)
+                        if len(parts) < 7:
+                            continue
+
+                        # 타임스탬프와 레벨 추출
+                        ts = self.try_parse_time(f"{parts[0]} {parts[1]}")
+                        if not ts:
+                            # 타임스탬프 파싱 실패 시 해당 라인 스킵
+                            continue
+                        
+                        lvl = parts[4].lower() # 레벨 (ERROR, WARNING 등)
+                        msg = parts[6].strip() # 메시지
+
+                        # 가장 최신 시간 업데이트
+                        latest_time = ts if latest_time is None or ts > latest_time else latest_time
+                        all_lines.append((ts, lvl, msg, name))
+            except Exception as e:
+                print(f"❌ 파일 '{name}' 처리 중 오류 발생: {e}")
+                # 오류 발생 시 사용자에게 알림
+                QMessageBox.warning(self, "파일 처리 오류",
+                                     f"'{name}' 파일을 읽는 중 오류가 발생했습니다: {e}\n"
+                                     "해당 파일의 로그는 표시되지 않을 수 있습니다.")
+            total_processed_files += 1
+
+
+        if latest_time is None:
+            self.error_view.setPlainText("⚠️ 로그 파일에서 유효한 시간 정보를 찾을 수 없습니다.")
+            return
+
+        cutoff = latest_time - time_range # 필터링할 최소 시간 (최신 시간 - 24시간)
+        levels_to_display = ['error', 'warning']
+        html_lines = []
+
+        # 시간 역순으로 정렬 후 필터링 및 HTML 생성
+        for ts, lvl, msg, name in sorted(all_lines, key=lambda x: x[0], reverse=True):
+            if ts < cutoff or lvl not in levels_to_display:
+                continue
+            
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] # 밀리초는 3자리로
+            file_col = f"[{name}]"
+            level_colored = {
+                "error": '<span style="color:red; font-weight:bold;">ERROR</span>', # 오류는 더 굵게
+                "warning": '<span style="color:orange;">WARNING</span>'
+            }.get(lvl, lvl.upper()) # 기본값은 대문자로
+
+            # HTML 형식으로 로그 라인 구성 (고정 너비 폰트 적용)
+            html_lines.append(
+                f'<span style="font-family:Courier New; white-space:pre;">' # pre로 공백 유지
+                f'{file_col:<30}{ts_str:<25}'
+                f'{level_colored:<10}{msg}</span>'
+            )
+        
+        # 마지막으로 진행률 바를 최대로 설정하여 완료를 나타냄
+        self.progress_bar.setValue(self.total_steps)
+        QApplication.processEvents()
+
+        if html_lines:
+            self.error_view.setHtml("<br>".join(html_lines))
+        else:
+            self.error_view.setPlainText("✅ 해당 시간 구간 (최근 24시간)에 오류 또는 경고 로그가 없습니다.")
+
+
+# --- (이 코드를 실행하기 위한 최소한의 메인 앱 구조) ---
+if __name__ == "__main__":
+    import sys
+    from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
+
+    app = QApplication(sys.argv)
+
+    class MainWindow(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("로그 뷰어")
+            self.setGeometry(100, 100, 900, 700) # 창 크기 조정
+
+            tab_widget = QTabWidget()
+            self.setCentralWidget(tab_widget)
+
+            error_log_tab = ErrorLogTab()
+            tab_widget.addTab(error_log_tab, "오류/경고 로그")
+
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+

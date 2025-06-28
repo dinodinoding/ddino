@@ -3,6 +3,10 @@
 
   "batch_file": "e:\\graph.bat",
 
+  "g4_converter": "C:/monitoring/g4_converter.exe",
+  "convert_list": "C:/monitoring/convert_list.txt",
+  "output_dir": "C:/monitoring/errorlog"
+
  
   "bat_files": [
     "c:\\data\\data1.bat",

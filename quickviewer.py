@@ -6,9 +6,15 @@ import sys
 import json
 import winreg
 
+# --- 기본 실행 파일 여부 확인 & 경로 설정 ---
+if getattr(sys, "frozen", False):
+    base_path = os.path.dirname(sys.executable)
+else:
+    base_path = os.path.dirname(__file__)
+
 # --- 설정 불러오기 ---
 def load_config():
-    config_path = os.path.join(os.path.dirname(__file__), "settings", "config.json")
+    config_path = os.path.join(base_path, "settings", "config.json")
     if not os.path.exists(config_path):
         return {}
     with open(config_path, "r", encoding="utf-8") as f:
@@ -44,65 +50,73 @@ KEYWORDS = [
     "mis1", "mis2", "mis3", "mis4", "mis5", "mis6"
 ]
 
-# --- 로그 요약 추출 ---
+# --- 요약 로그 추출 (폴더→파일 자동 처리 포함) ---
 def extract_summary_lines(filepath):
-    if not os.path.exists(filepath):
-        return ["[로그 파일을 찾을 수 없습니다]"]
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-    summary = [line.strip() for line in lines if any(line.startswith(k) for k in KEYWORDS)]
-    return summary if summary else ["[요약 가능한 로그 없음]"]
+    if os.path.isdir(filepath):
+        # 디렉토리면 그 안에서 첫 .txt 파일 찾기
+        txts = [f for f in os.listdir(filepath) if f.endswith(".txt")]
+        if txts:
+            filepath = os.path.join(filepath, txts[0])
+        else:
+            return [f"[No .txt files in directory: {filepath}]"]
 
-# --- 외부 파일 실행 ---
-def launch_detail_view():
-    target_path = "C:\\monitoring\\listlist.txt"
+    if not os.path.isfile(filepath):
+        return [f"[Invalid log path: {filepath}]"]
+
     try:
-        subprocess.Popen(["start", "", target_path], shell=True)
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+    except PermissionError:
+        return [f"[Permission denied opening file: {filepath}]"]
+
+    summary = [line.strip() for line in lines if any(line.startswith(k) for k in KEYWORDS)]
+    return summary if summary else ["[No matching keywords in log]"]
+
+# --- '더 자세히' 버튼 동작: txt든 exe든 실행 됨 ---
+def launch_detail_view():
+    target = os.path.join("C:\\monitoring", "listlist.txt")
+    try:
+        subprocess.Popen(["start", "", target], shell=True)
     except Exception as e:
-        messagebox.showerror("실행 오류", f"파일 실행 실패:\n{e}")
+        messagebox.showerror("Launch error", f"Failed to open: {e}")
 
 # --- GUI 생성 ---
 def create_gui():
     config = load_config()
     filepath = config.get("data_file", "")
-    filepath = os.path.abspath(filepath)
+    filepath = os.path.abspath(os.path.join(base_path, filepath)) if not os.path.isabs(filepath) else filepath
+
+    print("CONFIG:", config)
+    print("FILEPATH:", filepath)
 
     root = tk.Tk()
     root.title("Quick Log Viewer")
-    root.geometry("300x200")
+    root.geometry("300x283")
     root.attributes("-alpha", 0.9)
 
-    # 투명도 조절 핸들러
     def on_alpha_change(val):
-        alpha = float(val)
-        root.attributes("-alpha", alpha)
+        root.attributes("-alpha", float(val))
 
-    # 상단 체크박스
     def on_autorun_toggle():
         set_autorun(var_autorun.get())
 
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    check_autorun = tk.Checkbutton(root, text="Windows 재시작 시 자동 실행", variable=var_autorun, command=on_autorun_toggle)
+    check_autorun = tk.Checkbutton(root, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
     check_autorun.place(x=10, y=10)
 
-    # 로그 출력
     text_area = tk.Text(root, wrap="word", font=("Courier", 9))
-    text_area.place(x=10, y=40, width=280, height=80)
-    summary_lines = extract_summary_lines(filepath)
-    text_area.insert("1.0", "\n".join(summary_lines))
+    text_area.place(x=10, y=30, width=280, height=180)
+    summary = extract_summary_lines(filepath)
+    text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    # 투명도 슬라이더
-    alpha_slider = tk.Scale(root, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="투명도", command=on_alpha_change)
+    alpha_slider = tk.Scale(root, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="Opacity", command=on_alpha_change)
     alpha_slider.set(0.9)
-    alpha_slider.place(x=10, y=130, width=140)
+    alpha_slider.place(x=10, y=230, width=140)
 
-    # 하단 '더 자세히 ⚙' 버튼
     detail_frame = tk.Frame(root)
-    label = tk.Label(detail_frame, text="더 자세히", font=("Arial", 9))
-    label.pack(side="left", padx=4)
-    gear_button = tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view)
-    gear_button.pack(side="left")
+    tk.Label(detail_frame, text="Details", font=("Arial", 9)).pack(side="left", padx=4)
+    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view).pack(side="left")
     detail_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
     root.mainloop()

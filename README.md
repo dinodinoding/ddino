@@ -1,6 +1,8 @@
 # ddino
 
 pyinstaller --noconfirm --onefile --windowed quick_log_viewer.py
+
+
 Traceback (most recent call last):
   File "quickviewer.py", line 111, in <module>
     create_gui()

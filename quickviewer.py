@@ -6,7 +6,7 @@ import sys
 import json
 import winreg
 
-# --- 설정 로딩 ---
+# --- 설정 불러오기 ---
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), "settings", "config.json")
     if not os.path.exists(config_path):
@@ -14,7 +14,7 @@ def load_config():
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# --- 자동 실행 레지스트리 등록 ---
+# --- 자동 실행 설정 ---
 APP_NAME = "QuickLogViewer"
 def set_autorun(enable):
     reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -65,11 +65,17 @@ def launch_detail_view():
 def create_gui():
     config = load_config()
     filepath = config.get("data_file", "")
+    filepath = os.path.abspath(filepath)
 
     root = tk.Tk()
     root.title("Quick Log Viewer")
-    root.geometry("600x400")
+    root.geometry("300x200")
     root.attributes("-alpha", 0.9)
+
+    # 투명도 조절 핸들러
+    def on_alpha_change(val):
+        alpha = float(val)
+        root.attributes("-alpha", alpha)
 
     # 상단 체크박스
     def on_autorun_toggle():
@@ -79,19 +85,24 @@ def create_gui():
     check_autorun = tk.Checkbutton(root, text="Windows 재시작 시 자동 실행", variable=var_autorun, command=on_autorun_toggle)
     check_autorun.place(x=10, y=10)
 
-    # 로그 출력 영역
-    text_area = tk.Text(root, wrap="word", font=("Courier", 10))
-    text_area.place(x=10, y=40, width=580, height=300)
+    # 로그 출력
+    text_area = tk.Text(root, wrap="word", font=("Courier", 9))
+    text_area.place(x=10, y=40, width=280, height=80)
     summary_lines = extract_summary_lines(filepath)
     text_area.insert("1.0", "\n".join(summary_lines))
     text_area.config(state="disabled")
 
-    # 하단 기어 버튼 + 설명
+    # 투명도 슬라이더
+    alpha_slider = tk.Scale(root, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="투명도", command=on_alpha_change)
+    alpha_slider.set(0.9)
+    alpha_slider.place(x=10, y=130, width=140)
+
+    # 하단 '더 자세히 ⚙' 버튼
     detail_frame = tk.Frame(root)
+    label = tk.Label(detail_frame, text="더 자세히", font=("Arial", 9))
+    label.pack(side="left", padx=4)
     gear_button = tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view)
     gear_button.pack(side="left")
-    label = tk.Label(detail_frame, text="더 자세히", font=("Arial", 10))
-    label.pack(side="left", padx=5)
     detail_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
     root.mainloop()

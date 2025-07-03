@@ -1,20 +1,19 @@
-# text_view_tab.py
-
-# --- 1. 모듈 임포트 ---
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtGui import QFont
 import os
+import re
 from utils.config_loader import load_config
+from utils.summary_loader import load_summary_config
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
-# --- 2. StigGraphBox 클래스 ---
-# 기능: Stig 좌표 '하나'를 그리는 '부품' 클래스. (변경 없음)
+# ─────────────────────────────────────────────────────────────
+# 🔹 STIG 그래프 박스
 class StigGraphBox(QWidget):
     def __init__(self, title, x_val, y_val):
         super().__init__()
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(self)
         fig = Figure(figsize=(1.2, 1.2), dpi=100)
         ax = fig.add_subplot(111)
         ax.plot([x_val], [y_val], 'ro', markersize=5)
@@ -29,152 +28,124 @@ class StigGraphBox(QWidget):
         ax.set_yticks([])
         fig.tight_layout(pad=0.5)
         canvas = FigureCanvas(fig)
-        main_layout.addWidget(canvas)
+        layout.addWidget(canvas)
 
-# --- 3. BoxWithTitle 클래스 ---
-# 기능: 일반 텍스트를 표시하는 범용 '부품' 클래스. (변경 없음)
-class BoxWithTitle(QWidget):
-    def __init__(self, title, file_path, keywords, templates=None):
+# ─────────────────────────────────────────────────────────────
+# 🔹 요약 텍스트 박스
+class MultiLineSummaryBox(QWidget):
+    def __init__(self, file_path, label_mapping, title=None):
         super().__init__()
-        # ... (이전 코드와 완전히 동일) ...
-        if templates is None: templates = {}
-        content = ""
+        layout = QVBoxLayout(self)
+        font = QFont("Arial", 10)
+
+        if title:
+            title_label = QLabel(title)
+            title_label.setFont(QFont("Arial", 12, QFont.Bold))
+            layout.addWidget(title_label)
+
+        results = []
+
         if os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            if isinstance(keywords, str): keywords = [keywords]
-            filtered_content = []
-            for line in lines:
-                matched_keyword = next((k for k in keywords if line.startswith(k)), None)
-                if matched_keyword:
-                    stripped_line = line.strip()
-                    if matched_keyword == 'aperture':
-                        value = stripped_line.split('aperture', 1)[-1].strip()
-                        filtered_content.append(value.replace('/', '\n'))
-                    elif matched_keyword in templates and ' data ' in stripped_line:
-                        template = templates[matched_keyword]
-                        value = stripped_line.split(' data ', 1)[-1].strip()
-                        filtered_content.append(f"{template} {value}")
-                    else:
-                        filtered_content.append(stripped_line)
-            if filtered_content: content = "\n".join(filtered_content)
-            else: content = f"[{', '.join(keywords)}로 시작하는 줄 없음]"
-        else: content = f"[{file_path}] 파일이 존재하지 않습니다"
-        layout = QVBoxLayout()
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Arial", 12, QFont.Bold))
-        content_label = QLabel(content)
-        content_label.setWordWrap(True)
-        content_label.setFont(QFont("Courier", 10))
-        content_label.setStyleSheet("background-color: transparent; padding: 4px;")
-        layout.addWidget(title_label)
-        layout.addWidget(content_label)
+
+            for keyword, label_prefix in label_mapping:
+                matched = False
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith(keyword) and 'data' in line:
+                        parts = re.split(r'\s+data\s+', line.strip())
+                        if len(parts) == 2:
+                            value = parts[1].strip()
+
+                            # ✅ 특별 처리: apercurr → 줄바꿈
+                            if keyword == "apercurr":
+                                value = value.replace("/", "\n")
+                                results.append(f"{label_prefix}\n{value}")
+                            else:
+                                results.append(f"{label_prefix} {value}")
+
+                            matched = True
+                            break
+                if not matched:
+                    results.append(f"{label_prefix} [값 없음]")
+        else:
+            results = ["[파일 없음]"]
+
+        for line in results:
+            lbl = QLabel(line)
+            lbl.setFont(font)
+            layout.addWidget(lbl)
+
         self.setLayout(layout)
 
-# --- 4. SemAlignStigSection 클래스 ---
-# 기능: 'SEM Align&stig' 섹션을 만드는 '부품' 클래스. (생성자만 약간 수정)
+# ─────────────────────────────────────────────────────────────
+# 🔹 SEM Align + STIG 섹션
 class SemAlignStigSection(QWidget):
-    # 'title', 'keywords'를 받도록 하여 다른 위젯과 형식을 통일합니다. (keywords는 사용하지 않음)
-    def __init__(self, title, file_path, keywords, templates):
+    def __init__(self, data_file):
         super().__init__()
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(QLabel(title, font=QFont("Arial", 12, QFont.Bold)))
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("SEM Align&stig", font=QFont("Arial", 12, QFont.Bold)))
 
         semalign_text = ""
         stig_coords = {}
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
+
+        if os.path.exists(data_file):
+            with open(data_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("semalign"):
-                        template = templates.get("semalign")
-                        value = line.strip().split(' data ', 1)[-1].strip()
-                        semalign_text = f"{template} {value}"
-                    elif line.startswith("stig"):
-                        parts = line.strip().split()
-                        if len(parts) == 3:
-                            key, axis, val_str = parts
+                    line = line.strip()
+                    if line.startswith("sem_align") and 'data' in line:
+                        value = re.split(r'\s+data\s+', line)[-1].strip()
+                        semalign_text = f"Last SEM_Align Data {value}"
+                    elif line.startswith("stig_"):
+                        match = re.match(r"stig_(\w+?)_(x|y)\s+data\s+([-\d\.eE]+)", line)
+                        if match:
+                            level, axis, val_str = match.groups()
+                            key = f"stig{level.lower()}"
                             try:
-                                if key not in stig_coords: stig_coords[key] = {}
-                                stig_coords[key][axis] = float(val_str)
-                            except ValueError: continue
-        
+                                value = float(val_str)
+                                if key not in stig_coords:
+                                    stig_coords[key] = {}
+                                stig_coords[key][axis] = value
+                            except ValueError:
+                                continue
+
         if semalign_text:
-            main_layout.addWidget(QLabel(semalign_text, font=QFont("Courier", 10)))
+            layout.addWidget(QLabel(semalign_text, font=QFont("Courier", 10)))
 
-        stig_graphs_layout = QHBoxLayout()
-        stig_keys_to_display = ['stig20K', 'stig10k', 'stig5k', 'stig2k', 'stig1k']
-        for key in stig_keys_to_display:
-            coords = stig_coords.get(key, {'x': 0, 'y': 0}) 
-            graph_box = StigGraphBox(key.upper(), coords.get('x', 0), coords.get('y', 0))
-            stig_graphs_layout.addWidget(graph_box)
-        
-        main_layout.addLayout(stig_graphs_layout)
+        graph_layout = QHBoxLayout()
+        for key in ['stig20k', 'stig10k', 'stig5k', 'stig2k', 'stig1k']:
+            coords = stig_coords.get(key, {'x': 0, 'y': 0})
+            graph_layout.addWidget(StigGraphBox(key.upper(), coords['x'], coords['y']))
+        layout.addLayout(graph_layout)
 
-##############리팩토링################
-# --- 5. TextViewTab 클래스 ---
-# 기능: 모든 UI '부품'들을 조립하는 '조립 공장' 역할을 합니다.
-# 이유: 기존의 복잡한 로직 대신, '설계도(LAYOUT_DEFINITIONS)'를 읽어 UI를 동적으로 생성하는
-#      훨씬 더 단순하고 유지보수하기 쉬운 구조로 변경했습니다.
+# ─────────────────────────────────────────────────────────────
+# 🔹 전체 탭 구성
 class TextViewTab(QWidget):
-    # UI 레이아웃을 정의하는 '설계도'.
-    # 각 항목은 어떤 클래스를 사용할지, 제목은 무엇인지, 어떤 키워드를 찾을지 정의합니다.
-    LAYOUT_DEFINITIONS = {
-        'left': [
-            {'widget_class': BoxWithTitle, 'title': "FEG", 'keywords': "feg"},
-            {'widget_class': SemAlignStigSection, 'title': "SEM Align&stig", 'keywords': None},
-            {'widget_class': BoxWithTitle, 'title': "SGIS", 'keywords': "sgis"},
-            {'widget_class': BoxWithTitle, 'title': "MIS", 'keywords': ["mis1", "mis2", "mis3"]},
-        ],
-        'right': [
-            {'widget_class': BoxWithTitle, 'title': "IPG", 'keywords': ["ipg1", "ipg2", "ipg3", "ipg4"]},
-            {'widget_class': BoxWithTitle, 'title': "LMIS", 'keywords': ["lmis1", "lmis2", "lmis3"]},
-            {'widget_class': BoxWithTitle, 'title': "Aperture", 'keywords': "aperture"},
-        ]
-    }
-
     def __init__(self):
         super().__init__()
-        # 메인 레이아웃 및 좌/우 레이아웃 생성
         layout = QHBoxLayout(self)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
 
-        # 설정 및 데이터 파일 경로 로드
         config = load_config()
         data_file = config.get("data_file")
+        summary_config = load_summary_config()
 
-        # 텍스트 변환 규칙 정의
-        self.TEMPLATES = {
-            "feg": "feg setup data", "sgis": "sgis setup data", "semalign": "semalign setup data",
-            "mis1": "mis1 setup data", "mis2": "mis2 setup data", "mis3": "mis3 setup data",
-            "ipg1": "ipg1 setup data", "ipg2": "ipg2 setup data", "ipg3": "ipg3 setup data", "ipg4": "ipg4 setup data",
-            "lmis1": "lmis1 setup data", "lmis2": "lmis2 setup data", "lmis3": "lmis3 setup data",
-        }
+        # 왼쪽: FEG, SGIS, MIS
+        for title in ["FEG", "SGIS", "MGIS"]:
+            if title in summary_config:
+                mapping = summary_config[title].items()
+                left_layout.addWidget(MultiLineSummaryBox(data_file, mapping, title))
 
-        # '설계도'를 바탕으로 왼쪽 열의 위젯들을 동적으로 생성하고 배치
-        for definition in self.LAYOUT_DEFINITIONS['left']:
-            widget_class = definition['widget_class']
-            widget = widget_class(
-                title=definition['title'],
-                file_path=data_file,
-                keywords=definition['keywords'],
-                templates=self.TEMPLATES
-            )
-            left_layout.addWidget(widget)
+        left_layout.addWidget(SemAlignStigSection(data_file))
 
-        # '설계도'를 바탕으로 오른쪽 열의 위젯들을 동적으로 생성하고 배치
-        for definition in self.LAYOUT_DEFINITIONS['right']:
-            widget_class = definition['widget_class']
-            widget = widget_class(
-                title=definition['title'],
-                file_path=data_file,
-                keywords=definition['keywords'],
-                templates=self.TEMPLATES
-            )
-            right_layout.addWidget(widget)
+        # 오른쪽: IPG, LMIS, Aperture
+        for title in ["IGP", "LMIS", "FIB_Aperture"]:
+            if title in summary_config:
+                mapping = summary_config[title].items()
+                right_layout.addWidget(MultiLineSummaryBox(data_file, mapping, title))
 
-        # 최종 조립
         layout.addLayout(left_layout)
         layout.addLayout(right_layout)
         layout.addStretch(1)
-############리팩토링 끝#################

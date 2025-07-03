@@ -365,7 +365,7 @@ class GraphTab(QWidget):
             self._set_ui_enabled_state(True)
 
 
-# --- 메인 애플리케이션 실행 부분 ---
+# --- 메인 애플리케이션 실행 부분 --
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 

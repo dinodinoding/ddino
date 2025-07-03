@@ -6,11 +6,11 @@ from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
     QHBoxLayout, QProgressBar, QFrame, QMessageBox, QApplication, QCheckBox,
-    QMainWindow, QTabWidget
+    QMainWindow, QTabWidget, QScrollArea # QScrollArea 추가
 )
 from PySide6.QtGui import QFont
-from PySide6.QtCore import Qt # Qt.AlignTop 등을 위해 임포트
-from collections import OrderedDict # 순서 유지를 위해 OrderedDict 사용
+from PySide6.QtCore import Qt
+from collections import OrderedDict
 
 class ErrorLogTab(QWidget):
     def __init__(self):
@@ -41,24 +41,36 @@ class ErrorLogTab(QWidget):
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
-        # 로그 그룹 선택 체크박스 섹션
-        layout.addWidget(QLabel("변환할 로그 그룹 선택:"))
-
-        self.group_checkbox_container = QWidget()
-        self.group_checkbox_layout = QVBoxLayout(self.group_checkbox_container)
-        self.group_checkbox_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        layout.addWidget(self.group_checkbox_container)
-
-        self.group_checkboxes = {} # 그룹별 QCheckBox 객체를 저장할 딕셔너리 (이름:객체)
-
-        # "All" 및 "Selected" 체크박스
+        # "All" 및 "Selected" 체크박스 섹션
         selection_layout = QHBoxLayout()
         self.all_checkbox = QCheckBox("모든 로그 (All)")
         self.selected_checkbox = QCheckBox("선택된 로그 그룹 (Selected)")
         selection_layout.addWidget(self.all_checkbox)
         selection_layout.addWidget(self.selected_checkbox)
-        selection_layout.addStretch(1)
-        layout.addLayout(selection_layout)
+        selection_layout.addStretch(1) # 우측으로 밀기
+        layout.addLayout(selection_layout) # 먼저 추가
+
+        # 로그 그룹 선택 체크박스 섹션 (가로 정렬)
+        layout.addWidget(QLabel("변환할 로그 그룹 선택:"))
+
+        # 그룹 체크박스를 담을 컨테이너 위젯과 가로 레이아웃
+        self.group_checkbox_container = QWidget()
+        self.group_checkbox_layout = QHBoxLayout(self.group_checkbox_container) # QHBoxLayout로 변경
+        self.group_checkbox_layout.setAlignment(Qt.AlignLeft) # 왼쪽 정렬
+        self.group_checkbox_layout.addStretch(1) # 체크박스들 배치 후 남은 공간을 밀어줌
+
+        # 체크박스 수가 많아질 경우를 대비해 스크롤 영역 추가
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.group_checkbox_container)
+        scroll_area.setFixedHeight(80) # 스크롤 영역 높이 조절
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded) # 가로 스크롤바 필요할 때만
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # 세로 스크롤바는 항상 끔
+
+        layout.addWidget(scroll_area) # 스크롤 영역을 레이아웃에 추가
+
+        self.group_checkboxes = {} # 그룹별 QCheckBox 객체를 저장할 딕셔너리 (이름:객체)
+
 
         layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
@@ -67,34 +79,25 @@ class ErrorLogTab(QWidget):
         layout.addWidget(self.error_view, 1)
 
         # --- 설정 파일 로드 및 경로 초기화 ---
-        # config.json 파일 경로를 'settings' 폴더 안에 있다고 가정하여 정의
-        # 현재 스크립트 파일의 디렉토리 -> 'settings' 폴더 -> 'config.json'
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(current_script_dir, "settings", "config.json")
 
         self.config = self._load_config()
         if not self.config:
-            # 설정 파일 로드 실패 시 UI 비활성화 또는 앱 종료 고려
             self.reload_button.setEnabled(False)
-            for widget in self.findChildren(QWidget): # 모든 자식 위젯 비활성화
-                if widget is not self.description_label: # 설명 라벨은 제외
+            for widget in self.findChildren(QWidget):
+                if widget is not self.description_label:
                     widget.setEnabled(False)
             return
 
         self.converter_path = self.config.get("converter_path")
         self.output_dir = self.config.get("output_dir")
-        
-        # conversion_group_files 딕셔너리 내의 파일 경로들을 'settings' 폴더 기준으로 업데이트
-        # config.json에 정의된 경로가 상대 경로이거나, 절대 경로라도 'settings' 폴더 내의 파일을 가리킨다고 가정
+
         updated_conversion_group_files = OrderedDict()
         for group_name, relative_path in self.config.get("conversion_groups", {}).items():
-            # config.json 내의 경로가 'settings' 폴더 내부의 파일을 가리키도록 조정
-            # 예를 들어, "convert_motor_list.txt"만 있으면 settings/convert_motor_list.txt로
-            # 절대 경로가 아니거나, settings 폴더 내의 상대 경로일 경우
             if not os.path.isabs(relative_path):
                 updated_conversion_group_files[group_name] = os.path.join(current_script_dir, "settings", relative_path)
             else:
-                # 이미 절대 경로라면 그대로 사용
                 updated_conversion_group_files[group_name] = relative_path
         self.conversion_group_files = updated_conversion_group_files
 
@@ -197,7 +200,6 @@ class ErrorLogTab(QWidget):
         # self.log_groups에서 키(그룹명)를 가져와 체크박스 생성
         for group_name in self.log_groups.keys():
             chk_box = QCheckBox(group_name)
-            # 람다 함수에 인자 명시 (name=group_name)하여 클로저 문제 방지
             chk_box.toggled.connect(lambda checked, name=group_name: self._handle_group_checkbox_toggled(name, checked))
             self.group_checkbox_layout.addWidget(chk_box)
             self.group_checkboxes[group_name] = chk_box
@@ -211,13 +213,11 @@ class ErrorLogTab(QWidget):
         'All' 체크박스가 토글될 때 다른 체크박스의 상태를 제어합니다.
         """
         if checked:
-            # 'All'이 선택되면 'Selected' 해제 및 모든 그룹 체크박스 해제/비활성화
             self.selected_checkbox.setChecked(False)
             for chk_box in self.group_checkboxes.values():
                 chk_box.setChecked(False)
                 chk_box.setEnabled(False)
         else:
-            # 'All'이 해제되었을 때, 'Selected'가 선택되어 있지 않다면 그룹 체크박스 활성화
             if not self.selected_checkbox.isChecked():
                 for chk_box in self.group_checkboxes.values():
                     chk_box.setEnabled(True)
@@ -227,12 +227,10 @@ class ErrorLogTab(QWidget):
         'Selected' 체크박스가 토글될 때 다른 체크박스의 상태를 제어합니다.
         """
         if checked:
-            # 'Selected'가 선택되면 'All' 해제 및 그룹 체크박스 활성화
             self.all_checkbox.setChecked(False)
             for chk_box in self.group_checkboxes.values():
                 chk_box.setEnabled(True)
         else:
-            # 'Selected'가 해제될 때, 'All'도 해제되어 있다면 모든 그룹 체크박스 비활성화 및 해제
             if not self.all_checkbox.isChecked():
                 for chk_box in self.group_checkboxes.values():
                     chk_box.setEnabled(False)
@@ -243,18 +241,14 @@ class ErrorLogTab(QWidget):
         개별 그룹 체크박스가 토글될 때 'All'/'Selected' 체크박스의 상태를 제어합니다.
         """
         if checked:
-            # 개별 그룹이 선택되면 'All' 체크박스 강제 해제 (이미 선택된 경우)
             if self.all_checkbox.isChecked():
                 self.all_checkbox.setChecked(False)
-                # 'All'이 해제되면서 개별 그룹 체크박스가 활성화되므로 다시 선택되도록 함
-                QApplication.processEvents() # UI 업데이트 강제
+                QApplication.processEvents()
                 self.group_checkboxes[group_name].setChecked(True)
 
-            # 개별 그룹이 선택되면 'Selected' 체크박스 자동 선택
             if not self.selected_checkbox.isChecked():
                 self.selected_checkbox.setChecked(True)
         else:
-            # 개별 그룹이 해제될 때, 선택된 그룹이 하나도 없으면 'Selected'도 해제
             any_group_selected = any(chk.isChecked() for chk in self.group_checkboxes.values())
             if not any_group_selected and self.selected_checkbox.isChecked():
                 self.selected_checkbox.setChecked(False)
@@ -264,7 +258,6 @@ class ErrorLogTab(QWidget):
         self.progress_bar.setValue(0)
         self.error_view.clear()
 
-        # converter_path가 제대로 로드되었는지 다시 확인
         if not self.converter_path or not os.path.exists(self.converter_path):
             QMessageBox.critical(self, "파일 없음",
                                  f"g4_converter.exe를 찾을 수 없거나 경로가 유효하지 않습니다: {self.converter_path}\n"
@@ -273,17 +266,14 @@ class ErrorLogTab(QWidget):
             self.reload_button.setEnabled(True)
             return
 
-        # --- 변환할 로그 파일 목록 결정 로직 ---
         log_files_to_convert = []
         if self.all_checkbox.isChecked():
-            # "All" 선택 시 모든 그룹의 모든 파일 추가 (중복 제거)
             for files in self.log_groups.values():
                 log_files_to_convert.extend(files)
-            log_files_to_convert = list(set(log_files_to_convert)) # 중복 제거
+            log_files_to_convert = list(set(log_files_to_convert))
             self.error_view.setPlainText("모든 로그 파일을 변환합니다...")
             QApplication.processEvents()
         elif self.selected_checkbox.isChecked():
-            # "Selected" 선택 시, 활성화된 그룹 체크박스의 파일 추가
             selected_groups = [name for name, chk_box in self.group_checkboxes.items() if chk_box.isChecked()]
             if not selected_groups:
                 QMessageBox.warning(self, "선택 필요", "선택된 로그 그룹이 없습니다. 변환할 로그를 선택해주세요.")
@@ -293,7 +283,7 @@ class ErrorLogTab(QWidget):
 
             for group_name in selected_groups:
                 log_files_to_convert.extend(self.log_groups.get(group_name, []))
-            log_files_to_convert = list(set(log_files_to_convert)) # 중복 제거
+            log_files_to_convert = list(set(log_files_to_convert))
             self.error_view.setPlainText(f"선택된 그룹 ({', '.join(selected_groups)})의 로그 파일을 변환합니다...")
             QApplication.processEvents()
         else:
@@ -307,9 +297,8 @@ class ErrorLogTab(QWidget):
             self.reload_button.setEnabled(True)
             return
 
-        # --- 기존 변환 및 로딩 로직 ---
         total_files = len(log_files_to_convert)
-        self.total_steps = total_files * 2 # 변환 + 로딩 단계 고려
+        self.total_steps = total_files * 2
         self.progress_bar.setRange(0, self.total_steps)
         self.current_step = 0
 
@@ -403,7 +392,7 @@ class ErrorLogTab(QWidget):
             self.error_view.setPlainText("변환된 에러 로그 파일이 없습니다.")
             return
 
-        time_range = timedelta(days=1) # 최근 24시간
+        time_range = timedelta(days=1)
         all_lines = []
         latest_time = None
 

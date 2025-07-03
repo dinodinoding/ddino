@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
     QHBoxLayout, QProgressBar, QFrame, QMessageBox, QApplication, QCheckBox,
-    QMainWindow, QTabWidget, QScrollArea
+    QMainWindow, QTabWidget # QScrollArea 제거
 )
 from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
@@ -45,31 +45,24 @@ class ErrorLogTab(QWidget):
         selection_layout = QHBoxLayout()
         self.all_checkbox = QCheckBox("모든 로그 (All)")
         self.selected_checkbox = QCheckBox("선택된 로그 그룹 (Selected)")
-        self.warning_checkbox = QCheckBox("경고 (WARNING)") # Warning 체크박스만 유지
+        self.warning_checkbox = QCheckBox("경고 (WARNING)")
 
         selection_layout.addWidget(self.all_checkbox)
         selection_layout.addWidget(self.selected_checkbox)
-        selection_layout.addSpacing(20) # 간격 추가
-        selection_layout.addWidget(self.warning_checkbox) # Warning 체크박스만 추가
-        selection_layout.addStretch(1) # 우측으로 밀기
+        selection_layout.addSpacing(20)
+        selection_layout.addWidget(self.warning_checkbox)
+        selection_layout.addStretch(1)
         layout.addLayout(selection_layout)
 
         # 로그 그룹 선택 체크박스 섹션 (가로 정렬)
         layout.addWidget(QLabel("변환할 로그 그룹 선택:"))
 
-        self.group_checkbox_container = QWidget()
-        self.group_checkbox_layout = QHBoxLayout(self.group_checkbox_container)
+        # 그룹 체크박스를 담을 레이아웃만 남기고 컨테이너 위젯과 스크롤 영역 제거
+        self.group_checkbox_layout = QHBoxLayout() # QHBoxLayout 직접 생성
         self.group_checkbox_layout.setAlignment(Qt.AlignLeft)
         self.group_checkbox_layout.addStretch(1)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(self.group_checkbox_container)
-        scroll_area.setFixedHeight(30) # 높이 조절
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        layout.addWidget(scroll_area)
+        layout.addLayout(self.group_checkbox_layout) # 레이아웃을 메인 레이아웃에 직접 추가
 
         self.group_checkboxes = {}
 
@@ -108,7 +101,6 @@ class ErrorLogTab(QWidget):
         self.all_checkbox.toggled.connect(self._handle_all_checkbox_toggled)
         self.selected_checkbox.toggled.connect(self._handle_selected_checkbox_toggled)
 
-        # Warning 체크박스 시그널 연결 (캐시된 데이터를 필터링하여 표시)
         self.warning_checkbox.toggled.connect(self._display_filtered_logs)
 
         # 시작 시 그룹 정보 로드 및 체크박스 생성
@@ -117,10 +109,10 @@ class ErrorLogTab(QWidget):
 
         # 초기 상태 설정
         self.all_checkbox.setChecked(True)
-        self.warning_checkbox.setChecked(True) # 기본으로 WARNING 표시 (Error는 항상 표시)
+        self.warning_checkbox.setChecked(True)
 
         # 캐시 초기화
-        self.cached_log_data = [] # (timestamp, level, message, filename) 튜플 저장
+        self.cached_log_data = []
 
     def _ensure_output_directory_exists(self):
         """출력 디렉토리가 존재하는지 확인하고, 없으면 생성합니다."""
@@ -261,7 +253,7 @@ class ErrorLogTab(QWidget):
         self.reload_button.setEnabled(False)
         self.progress_bar.setValue(0)
         self.error_view.clear()
-        self.cached_log_data = [] # 새로운 변환 시작 시 캐시 초기화
+        self.cached_log_data = []
 
         if not self.converter_path or not os.path.exists(self.converter_path):
             QMessageBox.critical(self, "파일 없음",
@@ -455,15 +447,9 @@ class ErrorLogTab(QWidget):
             self.error_view.setPlainText("표시할 로그 데이터가 없습니다. 먼저 'g4_converter 실행 및 로그 표시' 버튼을 눌러 로그를 변환하고 불러오세요.")
             return
 
-        # 필터링 기준 결정
-        levels_to_display = ['error'] # Error는 항상 포함
+        levels_to_display = ['error']
         if self.warning_checkbox.isChecked():
             levels_to_display.append('warning')
-
-        if not levels_to_display:
-            # Error만 표시하는 경우에도 이 메시지가 뜨지 않도록 수정
-            # (Error는 항상 표시되므로 이 조건에 걸릴 일은 없음)
-            pass
 
         time_range = timedelta(days=1)
         cutoff = self.latest_log_time - time_range if self.latest_log_time else datetime.min

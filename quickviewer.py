@@ -86,14 +86,14 @@ def create_gui():
     filepath = os.path.abspath(os.path.join(base_path, filepath)) if not os.path.isabs(filepath) else filepath
 
     root = tk.Tk()
-    root.withdraw()  # 메인창 숨기기
+    root.withdraw()
 
     popup = tk.Toplevel()
-    popup.overrideredirect(True)  # 타이틀바 제거
+    popup.overrideredirect(True)
     popup.attributes("-topmost", True)
-    popup.attributes("-alpha", 0.5)  # 투명도 고정
+    popup.attributes("-alpha", 0.5)
 
-    # 화면 오른쪽 중간 위치
+    # 위치
     screen_width = popup.winfo_screenwidth()
     screen_height = popup.winfo_screenheight()
     width = 300
@@ -102,39 +102,36 @@ def create_gui():
     y = (screen_height // 2) - (height // 2)
     popup.geometry(f"{width}x{height}+{x}+{y}")
 
-    # 마우스로 창 이동 가능
+    # 창 이동
     def start_move(event):
         popup.x = event.x
         popup.y = event.y
-
     def do_move(event):
         dx = event.x - popup.x
         dy = event.y - popup.y
         popup.geometry(f"+{popup.winfo_x() + dx}+{popup.winfo_y() + dy}")
-
     popup.bind("<ButtonPress-1>", start_move)
     popup.bind("<B1-Motion>", do_move)
 
-    # 로그 텍스트 영역 (스크롤바 없음)
+    # 텍스트 영역
     text_area = tk.Text(popup, wrap="word", font=("Courier", 9))
     text_area.place(x=10, y=10, width=280, height=170)
     summary = extract_summary_lines(filepath)
     text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    # === 하단 구성: 체크박스 + 비밀 버튼 + 상세보기 버튼 ===
+    # 하단 프레임 (수평 구성)
     bottom_frame = tk.Frame(popup, bg=popup["bg"])
     bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 
-    # Auto-run 체크박스 (왼쪽)
+    # 체크박스
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
     def on_autorun_toggle():
         set_autorun(var_autorun.get())
-
     check_autorun = tk.Checkbutton(bottom_frame, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle, bg=popup["bg"])
     check_autorun.pack(side="left")
 
-    # 비밀 종료 버튼 (가운데, 표시 없음)
+    # 비밀 종료 버튼
     secret_close_btn = tk.Button(
         bottom_frame,
         text="",
@@ -149,9 +146,11 @@ def create_gui():
     )
     secret_close_btn.pack(side="left", padx=10)
 
-    # 상세 보기 버튼 (오른쪽)
-    detail_btn = tk.Button(bottom_frame, text="⚙", font=("Arial", 10), command=launch_detail_view)
-    detail_btn.pack(side="left")
+    # Details + ⚙
+    details_frame = tk.Frame(bottom_frame, bg=popup["bg"])
+    tk.Label(details_frame, text="Details", font=("Arial", 9), bg=popup["bg"]).pack(side="left")
+    tk.Button(details_frame, text="⚙", font=("Arial", 10), command=launch_detail_view).pack(side="left")
+    details_frame.pack(side="left")
 
     popup.mainloop()
 

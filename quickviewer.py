@@ -71,7 +71,7 @@ def extract_summary_lines(filepath):
     summary = [line.strip() for line in lines if any(line.startswith(k) for k in KEYWORDS)]
     return summary if summary else ["[No matching keywords in log]"]
 
-# --- '더 자세히' 버튼 동작 ---
+# --- 상세 보기 실행 ---
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
@@ -85,46 +85,68 @@ def create_gui():
     filepath = config.get("data_file", "")
     filepath = os.path.abspath(os.path.join(base_path, filepath)) if not os.path.isabs(filepath) else filepath
 
-    print("CONFIG:", config)
-    print("FILEPATH:", filepath)
-
     root = tk.Tk()
-    root.withdraw()  # 메인 윈도우 숨김
+    root.withdraw()  # 메인창 숨기기
 
     popup = tk.Toplevel()
-    popup.overrideredirect(True)  # 제목줄/닫기 버튼 제거
-    popup.attributes("-topmost", True)  # 항상 위에
+    popup.overrideredirect(True)  # 타이틀바 제거
+    popup.attributes("-topmost", True)
     popup.attributes("-alpha", 0.9)
 
-    # 화면 우측 하단 위치 설정
+    # 화면 오른쪽 중간 위치
     screen_width = popup.winfo_screenwidth()
     screen_height = popup.winfo_screenheight()
     width = 300
     height = 283
     x = screen_width - width - 20
-    y = screen_height - height - 50
+    y = (screen_height // 2) - (height // 2)
     popup.geometry(f"{width}x{height}+{x}+{y}")
 
-    def on_alpha_change(val):
-        popup.attributes("-alpha", float(val))
+    # 마우스로 창 이동 가능
+    def start_move(event):
+        popup.x = event.x
+        popup.y = event.y
 
+    def do_move(event):
+        dx = event.x - popup.x
+        dy = event.y - popup.y
+        popup.geometry(f"+{popup.winfo_x() + dx}+{popup.winfo_y() + dy}")
+
+    popup.bind("<ButtonPress-1>", start_move)
+    popup.bind("<B1-Motion>", do_move)
+
+    # Startup 체크박스
     def on_autorun_toggle():
         set_autorun(var_autorun.get())
+        # 체크박스 해제해도 창 종료는 하지 않음 (기존 방식 제거)
 
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
     check_autorun = tk.Checkbutton(popup, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
     check_autorun.place(x=10, y=10)
 
+    # 은밀한 닫기 버튼 (체크박스 옆, 보이지 않음)
+    secret_close_btn = tk.Button(popup, text="", command=popup.destroy,
+        relief="flat", borderwidth=0, highlightthickness=0,
+        bg=popup["bg"], activebackground=popup["bg"])
+    secret_close_btn.place(x=170, y=10, width=15, height=15)
+
+    # 로그 텍스트 영역
     text_area = tk.Text(popup, wrap="word", font=("Courier", 9))
     text_area.place(x=10, y=30, width=280, height=180)
     summary = extract_summary_lines(filepath)
     text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    alpha_slider = tk.Scale(popup, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="Opacity", command=on_alpha_change)
+    # 투명도 슬라이더
+    def on_alpha_change(val):
+        popup.attributes("-alpha", float(val))
+
+    alpha_slider = tk.Scale(popup, from_=0.3, to=1.0, resolution=0.01,
+                            orient="horizontal", label="Opacity", command=on_alpha_change)
     alpha_slider.set(0.9)
     alpha_slider.place(x=10, y=230, width=140)
 
+    # 상세 보기 버튼
     detail_frame = tk.Frame(popup)
     tk.Label(detail_frame, text="Details", font=("Arial", 9)).pack(side="left", padx=4)
     tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view).pack(side="left")

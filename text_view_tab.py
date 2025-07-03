@@ -1,10 +1,11 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit
+)
 from PySide6.QtGui import QFont
 import os
 import re
 from utils.config_loader import load_config
 from utils.summary_loader import load_summary_config
-
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
@@ -120,6 +121,34 @@ class SemAlignStigSection(QWidget):
         layout.addLayout(graph_layout)
 
 # ─────────────────────────────────────────────────────────────
+# 🔹 메모 게시판 (자동 저장/불러오기)
+class MemoBoardBox(QWidget):
+    def __init__(self, note_path="user_notes.txt"):
+        super().__init__()
+        self.note_path = note_path
+        layout = QVBoxLayout(self)
+
+        label = QLabel("메모")
+        label.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(label)
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlaceholderText("메모를 입력하세요...")
+        self.text_edit.textChanged.connect(self.save_notes)
+        layout.addWidget(self.text_edit)
+
+        self.load_notes()
+
+    def load_notes(self):
+        if os.path.exists(self.note_path):
+            with open(self.note_path, "r", encoding="utf-8") as f:
+                self.text_edit.setPlainText(f.read())
+
+    def save_notes(self):
+        with open(self.note_path, "w", encoding="utf-8") as f:
+            f.write(self.text_edit.toPlainText())
+
+# ─────────────────────────────────────────────────────────────
 # 🔹 전체 탭 구성
 class TextViewTab(QWidget):
     def __init__(self):
@@ -132,19 +161,23 @@ class TextViewTab(QWidget):
         data_file = config.get("data_file")
         summary_config = load_summary_config()
 
-        # 왼쪽: FEG, SGIS, MIS
-        for title in ["FEG", "SGIS", "MGIS"]:
+        # 🔹 왼쪽 레이아웃 순서
+        for title in ["FEG"]:
             if title in summary_config:
-                mapping = summary_config[title].items()
-                left_layout.addWidget(MultiLineSummaryBox(data_file, mapping, title))
+                left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
 
         left_layout.addWidget(SemAlignStigSection(data_file))
 
-        # 오른쪽: IPG, LMIS, Aperture
-        for title in ["IGP", "LMIS", "FIB_Aperture"]:
+        for title in ["SGIS", "MGIS", "IGP"]:
             if title in summary_config:
-                mapping = summary_config[title].items()
-                right_layout.addWidget(MultiLineSummaryBox(data_file, mapping, title))
+                left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
+
+        # 🔹 오른쪽 레이아웃 순서
+        for title in ["LMIS", "FIB_Aperture"]:
+            if title in summary_config:
+                right_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
+
+        right_layout.addWidget(MemoBoardBox("user_notes.txt"))
 
         layout.addLayout(left_layout)
         layout.addLayout(right_layout)

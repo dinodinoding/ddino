@@ -4,7 +4,7 @@ import sys
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QComboBox,
-    QStackedLayout, QFrame, QApplication
+    QApplication
 )
 from PySide6.QtCore import QTimer, Qt
 import xml.etree.ElementTree as ET
@@ -14,7 +14,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5 import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.ticker import LogLocator, FormatStrFormatter
 
-# --- config_loader.py에서 load_config 함수를 직접 import합니다. ---
 from utils.config_loader import load_config
 
 
@@ -25,7 +24,7 @@ def strip_namespace(tree):
 
 
 def parse_xml_data(xml_path, param_map):
-    print(">> [parse_xml_data] XML 데이터 파싱 시작")
+    print(f">> [parse_xml_data] XML 데이터 파싱 시작: {xml_path}")
     if not os.path.exists(xml_path):
         raise FileNotFoundError(f"XML 로그 파일을 찾을 수 없습니다: {xml_path}")
 
@@ -37,21 +36,15 @@ def parse_xml_data(xml_path, param_map):
         for vd in root.findall('.//ValueData'):
             param_id = vd.attrib.get("ParameterID", "")
             if param_id not in param_map:
-                # print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}") # 디버그 메시지 주석 처리
                 continue
-
             param_name = param_map[param_id]
             param_values = []
-
             for child in vd:
                 tag = child.tag.lower()
                 if tag == "parametervalues":
                     param_values.extend(child.findall("ParameterValue"))
                 elif tag == "parametervalue":
                     param_values.append(child)
-
-            # print(f"ParameterID: {param_id} → {param_name}, 값 수: {len(param_values)}") # 디버그 메시지 주석 처리
-
             for pv in param_values:
                 try:
                     ts = pv.get("Timestamp")
@@ -68,8 +61,28 @@ def parse_xml_data(xml_path, param_map):
         raise e
 
     if not temp_points:
-        raise ValueError("XML 파일에 유효한 데이터를 찾을 수 없습니다.")
+        raise ValueError(f"XML 파일 '{xml_path}'에 유효한 데이터를 찾을 수 없습니다.")
     return temp_points
+
+def find_latest_xml_file(directory_path):
+    print(f">> [find_latest_xml_file] 디렉토리에서 최신 XML 파일 검색: {directory_path}")
+    if not os.path.isdir(directory_path):
+        raise FileNotFoundError(f"지정된 디렉토리를 찾을 수 없습니다: {directory_path}")
+
+    xml_files = []
+    for filename in os.listdir(directory_path):
+        if filename.lower().endswith(".xml"):
+            file_path = os.path.join(directory_path, filename)
+            if os.path.isfile(file_path):
+                xml_files.append((os.path.getmtime(file_path), file_path))
+
+    if not xml_files:
+        raise FileNotFoundError(f"'{directory_path}' 디렉토리에서 XML 파일을 찾을 수 없습니다.")
+
+    xml_files.sort(key=lambda x: x[0], reverse=True)
+    latest_file_path = xml_files[0][1]
+    print(f">> [find_latest_xml_file] 최신 XML 파일 발견: {latest_file_path}")
+    return latest_file_path
 
 
 class GraphTab(QWidget):
@@ -90,41 +103,48 @@ class GraphTab(QWidget):
          "series": ['ACC_L', 'Emission', 'LENS1_L']}
     ]
 
-    # --- 프로그레스 바 관련 상수 ---
-    TOTAL_PROGRESS_STEPS = 100 # 전체 진행도 단위를 100으로 설정 (0-100%)
-    BAT_EXEC_PROGRESS_RATIO = 0.30 # 배치 파일 실행 (3초 대기)에 할당할 비율 (30%)
-    XML_PARSE_PROGRESS_RATIO = 0.50 # XML 파싱에 할당할 비율 (50%)
-    GRAPH_PLOT_PROGRESS_RATIO = 0.20 # 그래프 생성/업데이트에 할당할 비율 (20%)
+    TOTAL_PROGRESS_STEPS = 100
+    BAT_EXEC_PROGRESS_RATIO = 0.30
+    XML_FIND_PARSE_PROGRESS_RATIO = 0.50
+    GRAPH_PLOT_PROGRESS_RATIO = 0.20
 
-    # 각 단계의 절대적인 진행도 시작/끝점 계산
     BAT_EXEC_START = 0
-    BAT_EXEC_END = int(TOTAL_PROGRESS_STEPS * BAT_EXEC_PROGRESS_RATIO) # 30
-    XML_PARSE_START = BAT_EXEC_END # 30
-    XML_PARSE_END = BAT_EXEC_END + int(TOTAL_PROGRESS_STEPS * XML_PARSE_PROGRESS_RATIO) # 30 + 50 = 80
-    GRAPH_PLOT_START = XML_PARSE_END # 80
-    GRAPH_PLOT_END = TOTAL_PROGRESS_STEPS # 100
+    BAT_EXEC_END = int(TOTAL_PROGRESS_STEPS * BAT_EXEC_PROGRESS_RATIO)
+    XML_FIND_PARSE_START = BAT_EXEC_END
+    XML_FIND_PARSE_END = BAT_EXEC_END + int(TOTAL_PROGRESS_STEPS * XML_FIND_PARSE_PROGRESS_RATIO)
+    GRAPH_PLOT_START = XML_FIND_PARSE_END
+    GRAPH_PLOT_END = TOTAL_PROGRESS_STEPS
 
 
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
 
-        self._setup_description(layout) # 설명 라벨 추가
+        self._setup_description(layout)
         self._setup_controls(layout)
         self._setup_graph_area(layout)
 
-        cfg = load_config() # config_loader에서 불러옵니다.
-        # 현재 스크립트 디렉토리를 기준으로 상대 경로 처리
-        current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.xml_log_path = os.path.join(current_script_dir, cfg.get("xml_log", "output.xml"))
-        self.bat_path = os.path.join(current_script_dir, cfg.get("batch_file", "run_log_generation.bat"))
+        cfg = load_config()
+
+        # --- config.json에서 직접 절대 경로를 불러와 사용합니다. ---
+        # 기본값도 절대 경로로 설정 (config.json에 없을 경우)
+        self.xml_output_directory = cfg.get("xml_output_directory", "C:/monitoring")
+        self.bat_path = cfg.get("batch_file", "C:/monitoring/run_log_generation.bat")
+
+        # config.json에서 불러온 경로가 유효한지 간단히 검사하는 것이 좋습니다.
+        if not os.path.isabs(self.xml_output_directory):
+            print(f"경고: xml_output_directory ({self.xml_output_directory})가 절대 경로가 아닙니다. 문제가 발생할 수 있습니다.")
+        if not os.path.isabs(self.bat_path):
+            print(f"경고: batch_file ({self.bat_path})가 절대 경로가 아닙니다. 문제가 발생할 수 있습니다.")
+
 
         self.param_map = cfg.get("parameter_map", {})
 
         self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
         self.all_points = []
+        
+        self.bat_process = None
 
-        # UI 초기 상태 설정
         self._set_ui_enabled_state(True)
 
 
@@ -136,7 +156,7 @@ class GraphTab(QWidget):
         )
         self.description_label.setWordWrap(True)
         main_layout.addWidget(self.description_label)
-        main_layout.addSpacing(10) # 설명과 컨트롤 사이 간격 추가
+        main_layout.addSpacing(10)
 
 
     def _setup_controls(self, main_layout):
@@ -148,27 +168,26 @@ class GraphTab(QWidget):
         self.time_combo.currentTextChanged.connect(self.update_display)
         controls_layout.addWidget(self.time_combo)
 
-        # 프로그레스 바와 텍스트 라벨을 위한 컨테이너 레이아웃
         self.progress_container_layout = QVBoxLayout()
-        self.progress_container_layout.setAlignment(Qt.AlignTop) # 상단 정렬
+        self.progress_container_layout.setAlignment(Qt.AlignTop)
 
         self.progress_text_label = QLabel("준비 완료.")
-        self.progress_text_label.setFixedHeight(15) # 텍스트 라벨 높이 고정
+        self.progress_text_label.setFixedHeight(15)
         self.progress_container_layout.addWidget(self.progress_text_label)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, self.TOTAL_PROGRESS_STEPS) # 전체 진행도 범위 설정
-        self.progress_bar.setTextVisible(True) # 텍스트 항상 보이게
+        self.progress_bar.setRange(0, self.TOTAL_PROGRESS_STEPS)
+        self.progress_bar.setTextVisible(True)
         self.progress_bar.setFixedHeight(10)
         self.progress_container_layout.addWidget(self.progress_bar)
 
-        controls_layout.addLayout(self.progress_container_layout, 1) # 프로그레스 바 컨테이너 추가
+        controls_layout.addLayout(self.progress_container_layout, 1)
 
         self.refresh_button = QPushButton("로그 생성 및 새로고침")
         self.refresh_button.clicked.connect(self.on_refresh_clicked)
         controls_layout.addWidget(self.refresh_button)
         main_layout.addLayout(controls_layout)
-        main_layout.addSpacing(10) # 컨트롤과 그래프 사이 간격 추가
+        main_layout.addSpacing(10)
 
 
     def _setup_graph_area(self, main_layout):
@@ -181,12 +200,8 @@ class GraphTab(QWidget):
         main_layout.addWidget(self.status_label)
 
     def _set_ui_enabled_state(self, enabled):
-        """UI 요소들의 활성화 상태를 설정합니다."""
         self.time_combo.setEnabled(enabled)
         self.refresh_button.setEnabled(enabled)
-        # 프로그레스 바와 텍스트 라벨은 항상 보이지만, 작업 중에는 버튼만 비활성화
-        # self.progress_bar.setEnabled(enabled)
-        # self.progress_text_label.setEnabled(enabled)
 
     def update_display(self):
         print(f">> [DEBUG] update_display called | all_points={len(self.all_points)}")
@@ -224,13 +239,13 @@ class GraphTab(QWidget):
                 times, values = zip(*points)
 
                 if name == "Emission":
-                    values = [v * 1e6 for v in values] # Emission 값은 1e6 곱하여 스케일링
+                    values = [v * 1e6 for v in values]
                     display_name += " (scaled)"
 
                 ax.plot(times, values, label=display_name, marker='.', linestyle='-', markersize=3)
                 has_data = True
             else:
-                ax.plot([], [], label=display_name) # 데이터가 없어도 범례 표시를 위해 빈 플롯 추가
+                ax.plot([], [], label=display_name)
 
         ax.set_ylabel(definition["y_label"])
         ax.set_yscale(definition["y_scale"])
@@ -242,10 +257,12 @@ class GraphTab(QWidget):
         ax.grid(True, which="both", ls="--", alpha=0.6)
         ax.legend(loc='upper left', fontsize='small')
 
-    def on_refresh_clicked(self):
-        self._set_ui_enabled_state(False) # UI 비활성화
-        self.progress_bar.setValue(self.BAT_EXEC_START) # 프로그레스 바 초기화 (0)
 
+    def on_refresh_clicked(self):
+        self._set_ui_enabled_state(False)
+        self.progress_bar.setValue(self.BAT_EXEC_START)
+
+        # 배치 파일 존재 여부 검사 (절대 경로로 직접 검사)
         if not os.path.exists(self.bat_path):
             self.status_label.setText(f"오류: 배치 파일이 존재하지 않습니다: {self.bat_path}")
             self.progress_text_label.setText("오류 발생.")
@@ -255,65 +272,78 @@ class GraphTab(QWidget):
         self.status_label.setText("배치 파일 실행 중...")
         self.progress_text_label.setText("단계 1/3: 배치 파일 실행 중...")
         self.progress_bar.setFormat("배치 파일 실행 중... %p%")
-        QApplication.processEvents() # UI 업데이트 강제
+        QApplication.processEvents()
 
         try:
-            # 배치 파일 실행 (논블로킹)
-            subprocess.Popen(self.bat_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            print(f">> [DEBUG] Batch file executed: {self.bat_path}")
+            self.bat_process = subprocess.Popen(self.bat_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            print(f">> [DEBUG] Batch file started: {self.bat_path}")
         except Exception as e:
             self.status_label.setText(f"오류: 배치 파일 실행 중 문제 발생: {e}")
             self.progress_text_label.setText("오류 발생.")
             self._set_ui_enabled_state(True)
             return
 
-        # 배치 파일 실행 대기 및 진행도 업데이트 (3초 가정)
-        self.elapsed_time_for_bat = 0
-        self.bat_progress_timer = QTimer(self)
-        self.bat_progress_timer.timeout.connect(self._update_bat_progress)
-        self.bat_progress_timer.start(100) # 0.1초마다 업데이트
+        self.bat_check_timer = QTimer(self)
+        self.bat_check_timer.timeout.connect(self._check_bat_completion)
+        self.bat_check_timer.start(200)
 
-    def _update_bat_progress(self):
-        self.elapsed_time_for_bat += 100
-        # 배치 파일 실행은 3초를 가정하고, BAT_EXEC_START ~ BAT_EXEC_END 범위 내에서 진행
-        progress_in_segment = min(self.elapsed_time_for_bat, 3000) / 3000 # 0.0 ~ 1.0
-        current_value = self.BAT_EXEC_START + int(progress_in_segment * (self.BAT_EXEC_END - self.BAT_EXEC_START))
 
-        self.progress_bar.setValue(current_value)
-        self.progress_bar.setFormat(f"배치 파일 실행 중... {current_value}%")
-        QApplication.processEvents()
+    def _check_bat_completion(self):
+        return_code = self.bat_process.poll()
 
-        if self.elapsed_time_for_bat >= 3000:
-            self.bat_progress_timer.stop()
-            self._parse_xml_and_plot() # 다음 단계로 이동
+        if return_code is not None:
+            self.bat_check_timer.stop()
+            print(f">> [DEBUG] Batch file finished with return code: {return_code}")
+            
+            if return_code != 0:
+                self.status_label.setText(f"오류: 배치 파일이 오류 코드 {return_code}로 종료되었습니다.")
+                self.progress_text_label.setText(f"오류: 배치 파일 실패 ({return_code}).")
+                self.progress_bar.setValue(0)
+                self._set_ui_enabled_state(True)
+                return
 
-    def _parse_xml_and_plot(self):
-        self.status_label.setText("XML 데이터 파싱 중...")
-        self.progress_text_label.setText("단계 2/3: XML 파싱 중...")
-        self.progress_bar.setFormat(f"XML 파싱 중... %p%")
-        self.progress_bar.setValue(self.XML_PARSE_START + 1) # XML 파싱 시작 시점 업데이트
+            self.progress_bar.setValue(self.BAT_EXEC_END)
+            self.progress_bar.setFormat(f"배치 파일 완료! %p%")
+            QApplication.processEvents()
+
+            self._find_and_parse_xml_and_plot()
+        else:
+            current_value = self.BAT_EXEC_START + int((self.BAT_EXEC_END - self.BAT_EXEC_START) * 0.5)
+            self.progress_bar.setValue(current_value)
+            self.progress_text_label.setText("단계 1/3: 배치 파일 실행 중...")
+            self.progress_bar.setFormat("배치 파일 실행 중... (대기 중)")
+            QApplication.processEvents()
+
+
+    def _find_and_parse_xml_and_plot(self):
+        self.status_label.setText("XML 파일 검색 및 데이터 파싱 중...")
+        self.progress_text_label.setText("단계 2/3: XML 파일 검색 및 파싱 중...")
+        self.progress_bar.setFormat(f"XML 검색/파싱 중... %p%")
+        self.progress_bar.setValue(self.XML_FIND_PARSE_START + 1)
         QApplication.processEvents()
 
         try:
-            # XML 데이터 로드
-            self.all_points = parse_xml_data(self.xml_log_path, self.param_map)
+            # 1. 가장 최신 XML 파일 찾기 (xml_output_directory는 이미 절대 경로)
+            latest_xml_path = find_latest_xml_file(self.xml_output_directory)
+            print(f">> [DEBUG] Found latest XML: {latest_xml_path}")
+
+            # 2. XML 데이터 로드 (파싱)
+            self.all_points = parse_xml_data(latest_xml_path, self.param_map)
             print(">> [DEBUG] XML data successfully loaded.")
 
-            # XML 파싱 완료 후 진행도 업데이트
-            self.progress_bar.setValue(self.XML_PARSE_END)
-            self.progress_bar.setFormat(f"XML 파싱 완료! %p%")
+            self.progress_bar.setValue(self.XML_FIND_PARSE_END)
+            self.progress_bar.setFormat(f"XML 검색/파싱 완료! %p%")
             QApplication.processEvents()
 
-            # 그래프 업데이트 단계
+            # 3. 그래프 업데이트 단계
             self.status_label.setText("그래프 업데이트 중...")
             self.progress_text_label.setText("단계 3/3: 그래프 업데이트 중...")
             self.progress_bar.setFormat(f"그래프 업데이트 중... %p%")
-            self.progress_bar.setValue(self.GRAPH_PLOT_START + 1) # 그래프 업데이트 시작 시점 업데이트
+            self.progress_bar.setValue(self.GRAPH_PLOT_START + 1)
             QApplication.processEvents()
 
-            self.update_display() # 그래프 업데이트
+            self.update_display()
 
-            # 최종 완료
             self.progress_bar.setValue(self.TOTAL_PROGRESS_STEPS)
             self.progress_bar.setFormat("작업 완료!")
             self.status_label.setText("로그 생성 및 그래프 업데이트 완료.")
@@ -322,17 +352,17 @@ class GraphTab(QWidget):
         except FileNotFoundError as e:
             self.status_label.setText(f"오류: {e}")
             self.progress_text_label.setText("오류 발생: XML 파일 없음.")
-            self.all_points = [] # 데이터 초기화
+            self.all_points = []
         except ValueError as e:
             self.status_label.setText(f"오류: {e}")
             self.progress_text_label.setText("오류 발생: 유효한 데이터 없음.")
-            self.all_points = [] # 데이터 초기화
+            self.all_points = []
         except Exception as e:
             self.status_label.setText(f"예상치 못한 오류 발생: {e}")
             self.progress_text_label.setText("오류 발생.")
-            self.all_points = [] # 데이터 초기화
+            self.all_points = []
         finally:
-            self._set_ui_enabled_state(True) # UI 다시 활성화
+            self._set_ui_enabled_state(True)
 
 
 # --- 메인 애플리케이션 실행 부분 ---

@@ -50,10 +50,9 @@ KEYWORDS = [
     "mis1", "mis2", "mis3", "mis4", "mis5", "mis6"
 ]
 
-# --- 요약 로그 추출 (폴더→파일 자동 처리 포함) ---
+# --- 요약 로그 추출 ---
 def extract_summary_lines(filepath):
     if os.path.isdir(filepath):
-        # 디렉토리면 그 안에서 첫 .txt 파일 찾기
         txts = [f for f in os.listdir(filepath) if f.endswith(".txt")]
         if txts:
             filepath = os.path.join(filepath, txts[0])
@@ -72,7 +71,7 @@ def extract_summary_lines(filepath):
     summary = [line.strip() for line in lines if any(line.startswith(k) for k in KEYWORDS)]
     return summary if summary else ["[No matching keywords in log]"]
 
-# --- '더 자세히' 버튼 동작: txt든 exe든 실행 됨 ---
+# --- '더 자세히' 버튼 동작 ---
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
@@ -90,36 +89,48 @@ def create_gui():
     print("FILEPATH:", filepath)
 
     root = tk.Tk()
-    root.title("Quick Log Viewer")
-    root.geometry("300x283")
-    root.attributes("-alpha", 0.9)
+    root.withdraw()  # 메인 윈도우 숨김
+
+    popup = tk.Toplevel()
+    popup.overrideredirect(True)  # 제목줄/닫기 버튼 제거
+    popup.attributes("-topmost", True)  # 항상 위에
+    popup.attributes("-alpha", 0.9)
+
+    # 화면 우측 하단 위치 설정
+    screen_width = popup.winfo_screenwidth()
+    screen_height = popup.winfo_screenheight()
+    width = 300
+    height = 283
+    x = screen_width - width - 20
+    y = screen_height - height - 50
+    popup.geometry(f"{width}x{height}+{x}+{y}")
 
     def on_alpha_change(val):
-        root.attributes("-alpha", float(val))
+        popup.attributes("-alpha", float(val))
 
     def on_autorun_toggle():
         set_autorun(var_autorun.get())
 
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    check_autorun = tk.Checkbutton(root, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
+    check_autorun = tk.Checkbutton(popup, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
     check_autorun.place(x=10, y=10)
 
-    text_area = tk.Text(root, wrap="word", font=("Courier", 9))
+    text_area = tk.Text(popup, wrap="word", font=("Courier", 9))
     text_area.place(x=10, y=30, width=280, height=180)
     summary = extract_summary_lines(filepath)
     text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    alpha_slider = tk.Scale(root, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="Opacity", command=on_alpha_change)
+    alpha_slider = tk.Scale(popup, from_=0.3, to=1.0, resolution=0.01, orient="horizontal", label="Opacity", command=on_alpha_change)
     alpha_slider.set(0.9)
     alpha_slider.place(x=10, y=230, width=140)
 
-    detail_frame = tk.Frame(root)
+    detail_frame = tk.Frame(popup)
     tk.Label(detail_frame, text="Details", font=("Arial", 9)).pack(side="left", padx=4)
     tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view).pack(side="left")
     detail_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
-    root.mainloop()
+    popup.mainloop()
 
 if __name__ == "__main__":
     create_gui()

@@ -118,16 +118,22 @@ def create_gui():
     # Startup 체크박스
     def on_autorun_toggle():
         set_autorun(var_autorun.get())
-        # 체크박스 해제해도 창 종료는 하지 않음 (기존 방식 제거)
 
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
     check_autorun = tk.Checkbutton(popup, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
     check_autorun.place(x=10, y=10)
 
     # 은밀한 닫기 버튼 (체크박스 옆, 보이지 않음)
-    secret_close_btn = tk.Button(popup, text="", command=popup.destroy,
-        relief="flat", borderwidth=0, highlightthickness=0,
-        bg=popup["bg"], activebackground=popup["bg"])
+    secret_close_btn = tk.Button(
+        popup,
+        text="",
+        command=lambda: sys.exit(),  # 창 + 프로세스 완전 종료
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        bg=popup["bg"],
+        activebackground=popup["bg"]
+    )
     secret_close_btn.place(x=170, y=10, width=15, height=15)
 
     # 로그 텍스트 영역
@@ -141,8 +147,10 @@ def create_gui():
     def on_alpha_change(val):
         popup.attributes("-alpha", float(val))
 
-    alpha_slider = tk.Scale(popup, from_=0.3, to=1.0, resolution=0.01,
-                            orient="horizontal", label="Opacity", command=on_alpha_change)
+    alpha_slider = tk.Scale(
+        popup, from_=0.3, to=1.0, resolution=0.01,
+        orient="horizontal", label="Opacity", command=on_alpha_change
+    )
     alpha_slider.set(0.9)
     alpha_slider.place(x=10, y=230, width=140)
 

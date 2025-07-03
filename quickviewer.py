@@ -91,13 +91,13 @@ def create_gui():
     popup = tk.Toplevel()
     popup.overrideredirect(True)  # 타이틀바 제거
     popup.attributes("-topmost", True)
-    popup.attributes("-alpha", 0.9)
+    popup.attributes("-alpha", 0.5)  # 투명도 고정
 
     # 화면 오른쪽 중간 위치
     screen_width = popup.winfo_screenwidth()
     screen_height = popup.winfo_screenheight()
     width = 300
-    height = 283
+    height = 250
     x = screen_width - width - 20
     y = (screen_height // 2) - (height // 2)
     popup.geometry(f"{width}x{height}+{x}+{y}")
@@ -115,50 +115,43 @@ def create_gui():
     popup.bind("<ButtonPress-1>", start_move)
     popup.bind("<B1-Motion>", do_move)
 
-    # Startup 체크박스
-    def on_autorun_toggle():
-        set_autorun(var_autorun.get())
-
-    var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    check_autorun = tk.Checkbutton(popup, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle)
-    check_autorun.place(x=10, y=10)
-
-    # 은밀한 닫기 버튼 (체크박스 옆, 보이지 않음)
-    secret_close_btn = tk.Button(
-        popup,
-        text="",
-        command=lambda: sys.exit(),  # 창 + 프로세스 완전 종료
-        relief="flat",
-        borderwidth=0,
-        highlightthickness=0,
-        bg=popup["bg"],
-        activebackground=popup["bg"]
-    )
-    secret_close_btn.place(x=170, y=10, width=15, height=15)
-
-    # 로그 텍스트 영역
+    # 로그 텍스트 영역 (스크롤바 없음)
     text_area = tk.Text(popup, wrap="word", font=("Courier", 9))
-    text_area.place(x=10, y=30, width=280, height=180)
+    text_area.place(x=10, y=10, width=280, height=170)
     summary = extract_summary_lines(filepath)
     text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    # 투명도 슬라이더
-    def on_alpha_change(val):
-        popup.attributes("-alpha", float(val))
+    # === 하단 구성: 체크박스 + 비밀 버튼 + 상세보기 버튼 ===
+    bottom_frame = tk.Frame(popup, bg=popup["bg"])
+    bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 
-    alpha_slider = tk.Scale(
-        popup, from_=0.3, to=1.0, resolution=0.01,
-        orient="horizontal", label="Opacity", command=on_alpha_change
+    # Auto-run 체크박스 (왼쪽)
+    var_autorun = tk.BooleanVar(value=is_autorun_enabled())
+    def on_autorun_toggle():
+        set_autorun(var_autorun.get())
+
+    check_autorun = tk.Checkbutton(bottom_frame, text="Auto-run on Startup", variable=var_autorun, command=on_autorun_toggle, bg=popup["bg"])
+    check_autorun.pack(side="left")
+
+    # 비밀 종료 버튼 (가운데, 표시 없음)
+    secret_close_btn = tk.Button(
+        bottom_frame,
+        text="",
+        command=lambda: sys.exit(),
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        width=2,
+        height=1,
+        bg=popup["bg"],
+        activebackground=popup["bg"]
     )
-    alpha_slider.set(0.9)
-    alpha_slider.place(x=10, y=230, width=140)
+    secret_close_btn.pack(side="left", padx=10)
 
-    # 상세 보기 버튼
-    detail_frame = tk.Frame(popup)
-    tk.Label(detail_frame, text="Details", font=("Arial", 9)).pack(side="left", padx=4)
-    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view).pack(side="left")
-    detail_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
+    # 상세 보기 버튼 (오른쪽)
+    detail_btn = tk.Button(bottom_frame, text="⚙", font=("Arial", 10), command=launch_detail_view)
+    detail_btn.pack(side="left")
 
     popup.mainloop()
 

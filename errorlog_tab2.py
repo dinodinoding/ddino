@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTextEdit, QPushButton,
     QHBoxLayout, QProgressBar, QFrame, QMessageBox, QApplication, QCheckBox,
-    QMainWindow, QTabWidget, QScrollArea # QScrollArea 추가
+    QMainWindow, QTabWidget, QScrollArea
 )
 from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
@@ -41,36 +41,37 @@ class ErrorLogTab(QWidget):
         self.reload_button.clicked.connect(self.on_reload_clicked)
         filter_layout.addWidget(self.reload_button)
 
-        # "All" 및 "Selected" 체크박스 섹션
+        # "All", "Selected", "Warning" 체크박스 섹션
         selection_layout = QHBoxLayout()
         self.all_checkbox = QCheckBox("모든 로그 (All)")
         self.selected_checkbox = QCheckBox("선택된 로그 그룹 (Selected)")
+        self.warning_checkbox = QCheckBox("경고 (WARNING)") # Warning 체크박스만 유지
+
         selection_layout.addWidget(self.all_checkbox)
         selection_layout.addWidget(self.selected_checkbox)
+        selection_layout.addSpacing(20) # 간격 추가
+        selection_layout.addWidget(self.warning_checkbox) # Warning 체크박스만 추가
         selection_layout.addStretch(1) # 우측으로 밀기
-        layout.addLayout(selection_layout) # 먼저 추가
+        layout.addLayout(selection_layout)
 
         # 로그 그룹 선택 체크박스 섹션 (가로 정렬)
         layout.addWidget(QLabel("변환할 로그 그룹 선택:"))
 
-        # 그룹 체크박스를 담을 컨테이너 위젯과 가로 레이아웃
         self.group_checkbox_container = QWidget()
-        self.group_checkbox_layout = QHBoxLayout(self.group_checkbox_container) # QHBoxLayout로 변경
-        self.group_checkbox_layout.setAlignment(Qt.AlignLeft) # 왼쪽 정렬
-        self.group_checkbox_layout.addStretch(1) # 체크박스들 배치 후 남은 공간을 밀어줌
+        self.group_checkbox_layout = QHBoxLayout(self.group_checkbox_container)
+        self.group_checkbox_layout.setAlignment(Qt.AlignLeft)
+        self.group_checkbox_layout.addStretch(1)
 
-        # 체크박스 수가 많아질 경우를 대비해 스크롤 영역 추가
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(self.group_checkbox_container)
-        scroll_area.setFixedHeight(80) # 스크롤 영역 높이 조절
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded) # 가로 스크롤바 필요할 때만
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # 세로 스크롤바는 항상 끔
+        scroll_area.setFixedHeight(30) # 높이 조절
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        layout.addWidget(scroll_area) # 스크롤 영역을 레이아웃에 추가
+        layout.addWidget(scroll_area)
 
-        self.group_checkboxes = {} # 그룹별 QCheckBox 객체를 저장할 딕셔너리 (이름:객체)
-
+        self.group_checkboxes = {}
 
         layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
@@ -101,19 +102,25 @@ class ErrorLogTab(QWidget):
                 updated_conversion_group_files[group_name] = relative_path
         self.conversion_group_files = updated_conversion_group_files
 
-
         self._ensure_output_directory_exists()
 
         # 체크박스 시그널 연결
         self.all_checkbox.toggled.connect(self._handle_all_checkbox_toggled)
         self.selected_checkbox.toggled.connect(self._handle_selected_checkbox_toggled)
 
+        # Warning 체크박스 시그널 연결 (캐시된 데이터를 필터링하여 표시)
+        self.warning_checkbox.toggled.connect(self._display_filtered_logs)
+
         # 시작 시 그룹 정보 로드 및 체크박스 생성
         self.log_groups = self._parse_all_group_files()
         self._create_group_checkboxes()
 
-        # 초기 상태 설정: "All" 체크박스를 기본으로 선택
+        # 초기 상태 설정
         self.all_checkbox.setChecked(True)
+        self.warning_checkbox.setChecked(True) # 기본으로 WARNING 표시 (Error는 항상 표시)
+
+        # 캐시 초기화
+        self.cached_log_data = [] # (timestamp, level, message, filename) 튜플 저장
 
     def _ensure_output_directory_exists(self):
         """출력 디렉토리가 존재하는지 확인하고, 없으면 생성합니다."""
@@ -176,7 +183,7 @@ class ErrorLogTab(QWidget):
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     line = line.strip()
-                    if not line or line.startswith('#'): # 빈 줄 또는 주석 무시
+                    if not line or line.startswith('#'):
                         continue
                     files_in_group.append(line)
         except Exception as e:
@@ -190,21 +197,18 @@ class ErrorLogTab(QWidget):
         """
         로드된 그룹 정보를 기반으로 UI에 그룹 선택 체크박스를 동적으로 생성합니다.
         """
-        # 기존 체크박스가 있다면 모두 제거
         while self.group_checkbox_layout.count():
             item = self.group_checkbox_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        self.group_checkboxes = {} # 딕셔너리 초기화
+        self.group_checkboxes = {}
 
-        # self.log_groups에서 키(그룹명)를 가져와 체크박스 생성
         for group_name in self.log_groups.keys():
             chk_box = QCheckBox(group_name)
             chk_box.toggled.connect(lambda checked, name=group_name: self._handle_group_checkbox_toggled(name, checked))
             self.group_checkbox_layout.addWidget(chk_box)
             self.group_checkboxes[group_name] = chk_box
 
-        # 초기에는 그룹 체크박스들을 비활성화 (All이 기본 선택이므로)
         for chk_box in self.group_checkboxes.values():
             chk_box.setEnabled(False)
 
@@ -257,6 +261,7 @@ class ErrorLogTab(QWidget):
         self.reload_button.setEnabled(False)
         self.progress_bar.setValue(0)
         self.error_view.clear()
+        self.cached_log_data = [] # 새로운 변환 시작 시 캐시 초기화
 
         if not self.converter_path or not os.path.exists(self.converter_path):
             QMessageBox.critical(self, "파일 없음",
@@ -348,11 +353,8 @@ class ErrorLogTab(QWidget):
             self._increment_progress()
 
         self.error_files = converted_paths
-
-        if self.error_files:
-            self.load_error_log()
-        else:
-            self.error_view.setPlainText("주의: 변환된 로그 파일이 없거나, 변환 과정에서 문제가 발생했습니다.")
+        self._load_and_cache_logs()
+        self._display_filtered_logs()
 
         self.reload_button.setEnabled(True)
 
@@ -383,21 +385,19 @@ class ErrorLogTab(QWidget):
                 return None
         return None
 
-    def load_error_log(self):
+    def _load_and_cache_logs(self):
         """
-        변환된 로그 파일에서 최근 24시간 이내의 오류/경고 로그를 로드하여 표시합니다.
+        변환된 로그 파일들을 읽어 파싱하고 캐시에 저장합니다.
         """
-        self.error_view.clear()
+        self.cached_log_data = []
         if not self.error_files:
             self.error_view.setPlainText("변환된 에러 로그 파일이 없습니다.")
             return
 
-        time_range = timedelta(days=1)
-        all_lines = []
-        latest_time = None
-
         total_files_to_process = len(self.error_files)
         processed_files_count = 0
+
+        latest_time = None
 
         for path in self.error_files:
             self.error_view.setPlainText(f"로그 로딩 및 분석 중... ({processed_files_count+1}/{total_files_to_process}): {os.path.basename(path)}")
@@ -430,9 +430,9 @@ class ErrorLogTab(QWidget):
                         lvl = parts[4].lower()
                         msg = parts[6].strip()
 
+                        self.cached_log_data.append((ts, lvl, msg, name))
                         if latest_time is None or ts > latest_time:
                             latest_time = ts
-                        all_lines.append((ts, lvl, msg, name))
 
             except Exception as e:
                 print(f"오류: 파일 '{name}' 처리 중 예외 발생: {e}")
@@ -441,20 +441,41 @@ class ErrorLogTab(QWidget):
                                      "해당 파일의 로그는 표시되지 않을 수 있습니다.")
             processed_files_count += 1
 
-        if latest_time is None:
-            self.error_view.setPlainText("주의: 로그 파일에서 유효한 시간 정보를 찾을 수 없습니다. 로그 형식을 확인해주세요.")
-            self.progress_bar.setValue(self.total_steps)
-            QApplication.processEvents()
+        self.latest_log_time = latest_time
+        self.progress_bar.setValue(self.total_steps)
+        QApplication.processEvents()
+
+
+    def _display_filtered_logs(self):
+        """
+        캐시된 로그 데이터를 바탕으로 필터링하여 표시합니다.
+        """
+        self.error_view.clear()
+        if not self.cached_log_data:
+            self.error_view.setPlainText("표시할 로그 데이터가 없습니다. 먼저 'g4_converter 실행 및 로그 표시' 버튼을 눌러 로그를 변환하고 불러오세요.")
             return
 
-        cutoff = latest_time - time_range
-        levels_to_display = ['error', 'warning']
+        # 필터링 기준 결정
+        levels_to_display = ['error'] # Error는 항상 포함
+        if self.warning_checkbox.isChecked():
+            levels_to_display.append('warning')
+
+        if not levels_to_display:
+            # Error만 표시하는 경우에도 이 메시지가 뜨지 않도록 수정
+            # (Error는 항상 표시되므로 이 조건에 걸릴 일은 없음)
+            pass
+
+        time_range = timedelta(days=1)
+        cutoff = self.latest_log_time - time_range if self.latest_log_time else datetime.min
+
         html_lines = []
 
-        for ts, lvl, msg, name in sorted(all_lines, key=lambda x: x[0], reverse=True):
-            if ts < cutoff or lvl not in levels_to_display:
-                continue
+        filtered_logs = []
+        for ts, lvl, msg, name in self.cached_log_data:
+            if ts >= cutoff and lvl in levels_to_display:
+                filtered_logs.append((ts, lvl, msg, name))
 
+        for ts, lvl, msg, name in sorted(filtered_logs, key=lambda x: x[0], reverse=True):
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             file_col = f"[{name}]"
             level_colored = {
@@ -468,13 +489,10 @@ class ErrorLogTab(QWidget):
                 f'{level_colored:<10}{msg}</span>'
             )
 
-        self.progress_bar.setValue(self.total_steps)
-        QApplication.processEvents()
-
         if html_lines:
             self.error_view.setHtml("<br>".join(html_lines))
         else:
-            self.error_view.setPlainText("정보: 해당 시간 구간 (최근 24시간)에 오류 또는 경고 로그가 없습니다.")
+            self.error_view.setPlainText("정보: 선택된 필터에 해당하는 로그가 최근 24시간 이내에 없습니다.")
 
 
 if __name__ == "__main__":

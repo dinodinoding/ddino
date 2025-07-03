@@ -67,22 +67,37 @@ class ErrorLogTab(QWidget):
         layout.addWidget(self.error_view, 1)
 
         # --- 설정 파일 로드 및 경로 초기화 ---
-        # config.json 파일 경로 (실행 파일과 동일한 디렉토리에 있다고 가정)
-        self.config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-        # 또는 고정 경로: self.config_path = "C:/monitoring/config.json"
+        # config.json 파일 경로를 'settings' 폴더 안에 있다고 가정하여 정의
+        # 현재 스크립트 파일의 디렉토리 -> 'settings' 폴더 -> 'config.json'
+        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(current_script_dir, "settings", "config.json")
 
         self.config = self._load_config()
         if not self.config:
             # 설정 파일 로드 실패 시 UI 비활성화 또는 앱 종료 고려
             self.reload_button.setEnabled(False)
-            for widget in self.findChildren(QWidget):
-                if widget is not self.description_label:
+            for widget in self.findChildren(QWidget): # 모든 자식 위젯 비활성화
+                if widget is not self.description_label: # 설명 라벨은 제외
                     widget.setEnabled(False)
             return
 
         self.converter_path = self.config.get("converter_path")
         self.output_dir = self.config.get("output_dir")
-        self.conversion_group_files = OrderedDict(self.config.get("conversion_groups", {}))
+        
+        # conversion_group_files 딕셔너리 내의 파일 경로들을 'settings' 폴더 기준으로 업데이트
+        # config.json에 정의된 경로가 상대 경로이거나, 절대 경로라도 'settings' 폴더 내의 파일을 가리킨다고 가정
+        updated_conversion_group_files = OrderedDict()
+        for group_name, relative_path in self.config.get("conversion_groups", {}).items():
+            # config.json 내의 경로가 'settings' 폴더 내부의 파일을 가리키도록 조정
+            # 예를 들어, "convert_motor_list.txt"만 있으면 settings/convert_motor_list.txt로
+            # 절대 경로가 아니거나, settings 폴더 내의 상대 경로일 경우
+            if not os.path.isabs(relative_path):
+                updated_conversion_group_files[group_name] = os.path.join(current_script_dir, "settings", relative_path)
+            else:
+                # 이미 절대 경로라면 그대로 사용
+                updated_conversion_group_files[group_name] = relative_path
+        self.conversion_group_files = updated_conversion_group_files
+
 
         self._ensure_output_directory_exists()
 
@@ -316,9 +331,9 @@ class ErrorLogTab(QWidget):
                     [self.converter_path, log_path, out_path],
                     capture_output=True,
                     text=True,
-                    check=False, # 반환 코드가 0이 아니어도 예외를 발생시키지 않음
+                    check=False,
                     encoding='utf-8',
-                    creationflags=subprocess.CREATE_NO_WINDOW # 콘솔 창이 뜨지 않도록 함 (Windows only)
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
 
                 if result.returncode == 0:

@@ -1,12 +1,12 @@
 import os
 import subprocess
-import sys # QApplication import를 위해 추가
+import sys
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar, QComboBox,
-    QStackedLayout, QFrame, QApplication # QApplication 추가
+    QStackedLayout, QFrame, QApplication
 )
-from PySide6.QtCore import QTimer, Qt # Qt.AlignLeft 추가
+from PySide6.QtCore import QTimer, Qt
 import xml.etree.ElementTree as ET
 
 from matplotlib.figure import Figure
@@ -14,24 +14,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5 import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.ticker import LogLocator, FormatStrFormatter
 
-# config_loader.py 파일이 같은 디렉터리 내 utils 폴더에 있다고 가정
-# from utils.config_loader import load_config
-# 임시 load_config 함수 (실제 환경에 맞게 교체 필요)
-def load_config():
-    return {
-        "xml_log": "output.xml", # 예시 경로
-        "batch_file": "run_log_generation.bat", # 예시 배치 파일
-        "parameter_map": {
-            "Param001": "IGP1", "Param002": "IGP2", "Param003": "IGP3",
-            "Param004": "IGP4", "Param005": "HVG", "Param006": "ACC_V",
-            "Param007": "EXT_v", "Param008": "LENS1_V", "Param009": "ACC_L",
-            "Param010": "Emission", "Param011": "LENS1_L"
-        }
-    }
+# --- config_loader.py에서 load_config 함수를 직접 import합니다. ---
+from utils.config_loader import load_config
 
 
 def strip_namespace(tree):
-    # XML 네임스페이스 제거 (파싱 오류 방지)
     for elem in tree.iter():
         if '}' in elem.tag:
             elem.tag = elem.tag.split('}', 1)[1]
@@ -50,7 +37,7 @@ def parse_xml_data(xml_path, param_map):
         for vd in root.findall('.//ValueData'):
             param_id = vd.attrib.get("ParameterID", "")
             if param_id not in param_map:
-                # print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}")
+                # print(f">> [스킵] parameter_map에 없음 → 제외됨: {param_id}") # 디버그 메시지 주석 처리
                 continue
 
             param_name = param_map[param_id]
@@ -63,7 +50,7 @@ def parse_xml_data(xml_path, param_map):
                 elif tag == "parametervalue":
                     param_values.append(child)
 
-            # print(f"ParameterID: {param_id} → {param_name}, 값 수: {len(param_values)}")
+            # print(f"ParameterID: {param_id} → {param_name}, 값 수: {len(param_values)}") # 디버그 메시지 주석 처리
 
             for pv in param_values:
                 try:
@@ -105,31 +92,39 @@ class GraphTab(QWidget):
 
     # --- 프로그레스 바 관련 상수 ---
     TOTAL_PROGRESS_STEPS = 100 # 전체 진행도 단위를 100으로 설정 (0-100%)
-    BAT_EXEC_PROGRESS = 30     # 배치 파일 실행 (3초 대기)에 할당할 진행도 (0~30)
-    XML_PARSE_PROGRESS = 50    # XML 파싱에 할당할 진행도 (30~80)
-    GRAPH_PLOT_PROGRESS = 20   # 그래프 생성/업데이트에 할당할 진행도 (80~100)
+    BAT_EXEC_PROGRESS_RATIO = 0.30 # 배치 파일 실행 (3초 대기)에 할당할 비율 (30%)
+    XML_PARSE_PROGRESS_RATIO = 0.50 # XML 파싱에 할당할 비율 (50%)
+    GRAPH_PLOT_PROGRESS_RATIO = 0.20 # 그래프 생성/업데이트에 할당할 비율 (20%)
+
+    # 각 단계의 절대적인 진행도 시작/끝점 계산
+    BAT_EXEC_START = 0
+    BAT_EXEC_END = int(TOTAL_PROGRESS_STEPS * BAT_EXEC_PROGRESS_RATIO) # 30
+    XML_PARSE_START = BAT_EXEC_END # 30
+    XML_PARSE_END = BAT_EXEC_END + int(TOTAL_PROGRESS_STEPS * XML_PARSE_PROGRESS_RATIO) # 30 + 50 = 80
+    GRAPH_PLOT_START = XML_PARSE_END # 80
+    GRAPH_PLOT_END = TOTAL_PROGRESS_STEPS # 100
 
 
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
-        
+
         self._setup_description(layout) # 설명 라벨 추가
         self._setup_controls(layout)
         self._setup_graph_area(layout)
 
-        cfg = load_config()
-        # 상대 경로 처리: 스크립트가 실행되는 디렉토리를 기준으로 경로를 구성
+        cfg = load_config() # config_loader에서 불러옵니다.
+        # 현재 스크립트 디렉토리를 기준으로 상대 경로 처리
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         self.xml_log_path = os.path.join(current_script_dir, cfg.get("xml_log", "output.xml"))
         self.bat_path = os.path.join(current_script_dir, cfg.get("batch_file", "run_log_generation.bat"))
-        
+
         self.param_map = cfg.get("parameter_map", {})
 
         self.all_series_names = list(set(sum([d["series"] for d in self.GRAPH_DEFINITIONS], [])))
         self.all_points = []
-        
-        # UI 초기 상태 설정 (버튼 비활성화 등)
+
+        # UI 초기 상태 설정
         self._set_ui_enabled_state(True)
 
 
@@ -152,11 +147,11 @@ class GraphTab(QWidget):
         self.time_combo.setCurrentText("30분")
         self.time_combo.currentTextChanged.connect(self.update_display)
         controls_layout.addWidget(self.time_combo)
-        
-        # 프로그레스 바와 스페이서 관리 (현재 스페이서 대신 텍스트 라벨 사용)
+
+        # 프로그레스 바와 텍스트 라벨을 위한 컨테이너 레이아웃
         self.progress_container_layout = QVBoxLayout()
         self.progress_container_layout.setAlignment(Qt.AlignTop) # 상단 정렬
-        
+
         self.progress_text_label = QLabel("준비 완료.")
         self.progress_text_label.setFixedHeight(15) # 텍스트 라벨 높이 고정
         self.progress_container_layout.addWidget(self.progress_text_label)
@@ -166,9 +161,9 @@ class GraphTab(QWidget):
         self.progress_bar.setTextVisible(True) # 텍스트 항상 보이게
         self.progress_bar.setFixedHeight(10)
         self.progress_container_layout.addWidget(self.progress_bar)
-        
+
         controls_layout.addLayout(self.progress_container_layout, 1) # 프로그레스 바 컨테이너 추가
-        
+
         self.refresh_button = QPushButton("로그 생성 및 새로고침")
         self.refresh_button.clicked.connect(self.on_refresh_clicked)
         controls_layout.addWidget(self.refresh_button)
@@ -249,7 +244,7 @@ class GraphTab(QWidget):
 
     def on_refresh_clicked(self):
         self._set_ui_enabled_state(False) # UI 비활성화
-        self.progress_bar.setValue(0) # 프로그레스 바 초기화
+        self.progress_bar.setValue(self.BAT_EXEC_START) # 프로그레스 바 초기화 (0)
 
         if not os.path.exists(self.bat_path):
             self.status_label.setText(f"오류: 배치 파일이 존재하지 않습니다: {self.bat_path}")
@@ -280,10 +275,12 @@ class GraphTab(QWidget):
 
     def _update_bat_progress(self):
         self.elapsed_time_for_bat += 100
-        # 배치 파일 실행은 3초를 가정하고, 전체 진행도의 BAT_EXEC_PROGRESS 비율을 차지
-        current_val = int((self.elapsed_time_for_bat / 3000) * self.BAT_EXEC_PROGRESS)
-        self.progress_bar.setValue(min(current_val, self.BAT_EXEC_PROGRESS)) # BAT_EXEC_PROGRESS를 넘지 않도록
-        self.progress_bar.setFormat(f"배치 파일 실행 중... {min(current_val, self.BAT_EXEC_PROGRESS)}%")
+        # 배치 파일 실행은 3초를 가정하고, BAT_EXEC_START ~ BAT_EXEC_END 범위 내에서 진행
+        progress_in_segment = min(self.elapsed_time_for_bat, 3000) / 3000 # 0.0 ~ 1.0
+        current_value = self.BAT_EXEC_START + int(progress_in_segment * (self.BAT_EXEC_END - self.BAT_EXEC_START))
+
+        self.progress_bar.setValue(current_value)
+        self.progress_bar.setFormat(f"배치 파일 실행 중... {current_value}%")
         QApplication.processEvents()
 
         if self.elapsed_time_for_bat >= 3000:
@@ -293,9 +290,8 @@ class GraphTab(QWidget):
     def _parse_xml_and_plot(self):
         self.status_label.setText("XML 데이터 파싱 중...")
         self.progress_text_label.setText("단계 2/3: XML 파싱 중...")
-        # XML 파싱 진행도는 BAT_EXEC_PROGRESS부터 시작
-        self.progress_bar.setFormat(f"XML 파싱 중... {self.BAT_EXEC_PROGRESS + 1}%")
-        self.progress_bar.setValue(self.BAT_EXEC_PROGRESS + 1)
+        self.progress_bar.setFormat(f"XML 파싱 중... %p%")
+        self.progress_bar.setValue(self.XML_PARSE_START + 1) # XML 파싱 시작 시점 업데이트
         QApplication.processEvents()
 
         try:
@@ -304,19 +300,19 @@ class GraphTab(QWidget):
             print(">> [DEBUG] XML data successfully loaded.")
 
             # XML 파싱 완료 후 진행도 업데이트
-            self.progress_bar.setValue(self.BAT_EXEC_PROGRESS + self.XML_PARSE_PROGRESS)
-            self.progress_bar.setFormat(f"XML 파싱 완료! {self.BAT_EXEC_PROGRESS + self.XML_PARSE_PROGRESS}%")
+            self.progress_bar.setValue(self.XML_PARSE_END)
+            self.progress_bar.setFormat(f"XML 파싱 완료! %p%")
             QApplication.processEvents()
 
             # 그래프 업데이트 단계
             self.status_label.setText("그래프 업데이트 중...")
             self.progress_text_label.setText("단계 3/3: 그래프 업데이트 중...")
-            self.progress_bar.setFormat(f"그래프 업데이트 중... {self.BAT_EXEC_PROGRESS + self.XML_PARSE_PROGRESS + 1}%")
-            self.progress_bar.setValue(self.BAT_EXEC_PROGRESS + self.XML_PARSE_PROGRESS + 1)
+            self.progress_bar.setFormat(f"그래프 업데이트 중... %p%")
+            self.progress_bar.setValue(self.GRAPH_PLOT_START + 1) # 그래프 업데이트 시작 시점 업데이트
             QApplication.processEvents()
 
             self.update_display() # 그래프 업데이트
-            
+
             # 최종 완료
             self.progress_bar.setValue(self.TOTAL_PROGRESS_STEPS)
             self.progress_bar.setFormat("작업 완료!")
@@ -339,11 +335,11 @@ class GraphTab(QWidget):
             self._set_ui_enabled_state(True) # UI 다시 활성화
 
 
-# --- 메인 애플리케이션 실행 부분 (수정 없음) ---
+# --- 메인 애플리케이션 실행 부분 ---
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    class MainWindow(QWidget): # QMainWindow 대신 QWidget으로 변경
+    class MainWindow(QWidget):
         def __init__(self):
             super().__init__()
             self.setWindowTitle("로그 및 그래프 뷰어")

@@ -59,7 +59,7 @@ class MultiLineSummaryBox(QWidget):
                         if len(parts) == 2:
                             value = parts[1].strip()
 
-                            # ✅ 특별 처리: apercurr → 줄바꿈
+                            # ✅ 특별 처리: apercurr → 줄바꿈 + 여백 줄임
                             if keyword == "apercurr":
                                 value = value.replace("/", "\n")
                                 results.append(f"{label_prefix}\n{value}")
@@ -76,6 +76,7 @@ class MultiLineSummaryBox(QWidget):
         for line in results:
             lbl = QLabel(line)
             lbl.setFont(font)
+            lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")  # 🔹 줄 간격 최소화
             layout.addWidget(lbl)
 
         self.setLayout(layout)
@@ -121,9 +122,9 @@ class SemAlignStigSection(QWidget):
         layout.addLayout(graph_layout)
 
 # ─────────────────────────────────────────────────────────────
-# 🔹 메모 게시판 (자동 저장/불러오기)
+# 🔹 메모 게시판 (자동 저장/불러오기, 크기 조정)
 class MemoBoardBox(QWidget):
-    def __init__(self, note_path="user_notes.txt"):
+    def __init__(self, note_path="settings/user_notes.txt"):
         super().__init__()
         self.note_path = note_path
         layout = QVBoxLayout(self)
@@ -134,6 +135,8 @@ class MemoBoardBox(QWidget):
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText("메모를 입력하세요...")
+        self.text_edit.setMinimumWidth(450)     # 🔸 가로 너비 확대
+        self.text_edit.setFixedHeight(250)      # 🔸 세로 높이 확대
         self.text_edit.textChanged.connect(self.save_notes)
         layout.addWidget(self.text_edit)
 
@@ -145,6 +148,7 @@ class MemoBoardBox(QWidget):
                 self.text_edit.setPlainText(f.read())
 
     def save_notes(self):
+        os.makedirs(os.path.dirname(self.note_path), exist_ok=True)
         with open(self.note_path, "w", encoding="utf-8") as f:
             f.write(self.text_edit.toPlainText())
 
@@ -177,7 +181,7 @@ class TextViewTab(QWidget):
             if title in summary_config:
                 right_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
 
-        right_layout.addWidget(MemoBoardBox("user_notes.txt"))
+        right_layout.addWidget(MemoBoardBox("settings/user_notes.txt"))
 
         layout.addLayout(left_layout)
         layout.addLayout(right_layout)

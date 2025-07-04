@@ -38,15 +38,15 @@ from PySide2.QtWidgets import (
     QLabel, QTextEdit, QPushButton, QFileDialog
 )
 
-class ParameterFinder(QWidget):
+class FastParameterFinder(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ParameterID Finder (진단 포함)")
-        self.setGeometry(300, 300, 700, 500)
+        self.setWindowTitle("ParameterID 빠른 검색기 (11개 고정)")
+        self.setGeometry(300, 300, 700, 450)
 
         layout = QVBoxLayout()
 
-        # 파일 선택
+        # 파일 선택 UI
         file_layout = QHBoxLayout()
         self.file_button = QPushButton("XML 파일 선택")
         self.file_button.clicked.connect(self.select_file)
@@ -55,20 +55,20 @@ class ParameterFinder(QWidget):
         file_layout.addWidget(self.file_label)
         layout.addLayout(file_layout)
 
-        # 결과 출력창
+        # 결과 출력
         self.result_area = QTextEdit()
         self.result_area.setReadOnly(True)
         layout.addWidget(self.result_area)
 
         # 검색 버튼
-        self.search_button = QPushButton("ParameterID 검색")
+        self.search_button = QPushButton("ParameterID 검색 시작")
         self.search_button.clicked.connect(self.search_parameter_ids)
         layout.addWidget(self.search_button)
 
         self.setLayout(layout)
         self.xml_file = None
 
-        # 고정된 Parameter 이름 목록
+        # 고정된 Parameter 이름 11개
         self.fixed_names = [
             "I-Column.IGP1", "I-Column.IGP2", "I-Column.IGP3",
             "I-Column.IGP4", "I-Column.IGP5", "I-Column.IGP6",
@@ -81,7 +81,6 @@ class ParameterFinder(QWidget):
         if file_path:
             self.xml_file = file_path
             self.file_label.setText(file_path)
-            print(f"[파일 선택됨] {file_path}")
 
     def is_valid_id(self, pid):
         return pid and pid.isdigit() and len(pid) == 4
@@ -91,32 +90,31 @@ class ParameterFinder(QWidget):
             self.result_area.setText("⚠ XML 파일을 먼저 선택하세요.")
             return
 
+        # 결과 저장 구조
+        found_map = {name: None for name in self.fixed_names}
+        remaining = set(self.fixed_names)
+
         try:
-            tree = ET.parse(self.xml_file)
-            root = tree.getroot()
+            # iterparse로 빠르게 파싱 (line-by-line)
+            context = ET.iterparse(self.xml_file, events=("start",))
 
-            found_map = {name: None for name in self.fixed_names}
+            for event, elem in context:
+                tag = elem.tag.split('}')[-1]  # 네임스페이스 제거
+                if tag.lower() != "valuedata":
+                    continue
 
-            print("=== 전체 태그 구조 미리 보기 ===")
-            for elem in root.iter():
-                print(f"태그: {elem.tag} | 속성: {elem.attrib}")
+                pname = elem.get("Parameter", "").strip()
+                pid = elem.get("ParameterID", "").strip()
 
-            print("=== XML 내 Parameter 정보 탐색 ===")
-            for elem in root.iter():
-                # 네임스페이스 제거 처리
-                tag_name = elem.tag.split('}')[-1]  # {namespace}ValueData → ValueData
+                if pname in remaining and self.is_valid_id(pid):
+                    found_map[pname] = pid
+                    remaining.remove(pname)
 
-                if tag_name.lower() == "valuedata":
-                    pname = elem.get("Parameter", "").strip()
-                    pid = elem.get("ParameterID", "").strip()
-                    print(f"발견: Parameter = '{pname}', ID = '{pid}'")
+                    if len(remaining) == 0:
+                        break  # 11개 모두 찾았으면 종료
 
-                    if pname in found_map and found_map[pname] is None:
-                        if self.is_valid_id(pid):
-                            found_map[pname] = pid
-                            print(f"✅ 매칭됨: [{pname}] → {pid}")
-                        else:
-                            print(f"⚠ ID 형식 오류: '{pid}'")
+                # 메모리 누수 방지
+                elem.clear()
 
             result_lines = []
             for name in self.fixed_names:
@@ -129,10 +127,10 @@ class ParameterFinder(QWidget):
 
         except Exception as e:
             self.result_area.setText(f"❌ XML 파싱 실패: {e}")
-            print(f"[예외 발생] {e}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = ParameterFinder()
+    window = FastParameterFinder()
     window.show()
     sys.exit(app.exec_())

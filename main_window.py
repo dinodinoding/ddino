@@ -1,12 +1,10 @@
-# main_window.py
-
 import os
 import sys
 import logging
 import traceback
 from datetime import datetime
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+from PySide2.QtWidgets import QMainWindow, QTabWidget
 
 # 탭 클래스들 import
 from text_view_tab import TextViewTab
@@ -15,35 +13,51 @@ from error_log_tab import ErrorLogTab
 from registry_tab import RegistryTabGroup
 
 # ===== [1] 로그 디렉터리 및 파일 설정 ===== #
-LOG_DIR = "logs"
+# 사용자 홈 디렉터리 하위에 로그 폴더 생성 (Windows 7 대응)
+home_dir = os.path.expanduser("~")
+LOG_DIR = os.path.join(home_dir, "my_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
+
 log_filename = os.path.join(LOG_DIR, f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
-logging.basicConfig(
-    filename=log_filename,
-    filemode="w",
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+try:
+    logging.basicConfig(
+        filename=log_filename,
+        filemode="w",
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s"
+    )
+except Exception as e:
+    print("로깅 설정 실패:", e)
 
-# 콘솔에도 출력하도록 설정
+# 콘솔에도 출력하도록 설정 (console이 없을 수도 있음)
 class LoggerWriter:
     def __init__(self, stream, level):
         self.stream = stream
         self.level = level
 
     def write(self, message):
-        if message.strip():
-            self.level(message.strip())
-        if self.stream: 
-            self.stream.write(message)
-        
+        message = message.strip()
+        if message and callable(self.level):  # 함수 여부 확인
+            try:
+                self.level(message)
+            except Exception:
+                pass
+        if self.stream:
+            try:
+                self.stream.write(message + "\n")
+            except Exception:
+                pass
 
     def flush(self):
-        self.stream.flush()
+        if self.stream:
+            try:
+                self.stream.flush()
+            except Exception:
+                pass
 
-sys.stdout = LoggerWriter(sys.stdout, logging.info)
-sys.stderr = LoggerWriter(sys.stderr, logging.error)
+sys.stdout = LoggerWriter(getattr(sys, 'stdout', None), logging.info)
+sys.stderr = LoggerWriter(getattr(sys, 'stderr', None), logging.error)
 
 # 예외 자동 기록
 def exception_hook(exctype, value, tb):

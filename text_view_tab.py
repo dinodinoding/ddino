@@ -141,14 +141,14 @@ class MemoBoardBox(QWidget):
         self.note_path = note_path
         layout = QVBoxLayout(self)
 
-        label = QLabel("메모")
+        label = QLabel("MotePad")
         label.setFont(QFont("Arial", 12, QFont.Bold))
         layout.addWidget(label)
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText("메모를 입력하세요...")
         self.text_edit.setMinimumWidth(450)
-        self.text_edit.setFixedHeight(250)
+        self.text_edit.setFixedHeight(450)
         self.text_edit.textChanged.connect(self.save_notes)
         layout.addWidget(self.text_edit)
 

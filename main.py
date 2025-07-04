@@ -134,3 +134,5 @@ if __name__ == "__main__":
     window = FastParameterFinder()
     window.show()
     sys.exit(app.exec_())
+    
+    pyinstaller parameter_finder_fast.py --noconfirm --windowed --name ParameterIDFinder

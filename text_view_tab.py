@@ -38,6 +38,7 @@ class MultiLineSummaryBox(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         font = QFont("Arial", 10)
+        layout.setSpacing(0)  # 전체 레이아웃 줄 간격 제거
 
         if title:
             title_label = QLabel(title)
@@ -59,7 +60,7 @@ class MultiLineSummaryBox(QWidget):
                         if len(parts) == 2:
                             value = parts[1].strip()
 
-                            # ✅ 특별 처리: apercurr → 줄바꿈 + 여백 줄임
+                            # 🔹 apercurr → 줄바꿈 처리
                             if keyword == "apercurr":
                                 value = value.replace("/", "\n")
                                 results.append(f"{label_prefix}\n{value}")
@@ -74,10 +75,17 @@ class MultiLineSummaryBox(QWidget):
             results = ["[파일 없음]"]
 
         for line in results:
-            lbl = QLabel(line)
-            lbl.setFont(font)
-            lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")  # 🔹 줄 간격 최소화
-            layout.addWidget(lbl)
+            if '\n' in line:
+                for subline in line.split('\n'):
+                    lbl = QLabel(subline)
+                    lbl.setFont(font)
+                    lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")
+                    layout.addWidget(lbl)
+            else:
+                lbl = QLabel(line)
+                lbl.setFont(font)
+                lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")
+                layout.addWidget(lbl)
 
         self.setLayout(layout)
 
@@ -135,8 +143,8 @@ class MemoBoardBox(QWidget):
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText("메모를 입력하세요...")
-        self.text_edit.setMinimumWidth(450)     # 🔸 가로 너비 확대
-        self.text_edit.setFixedHeight(250)      # 🔸 세로 높이 확대
+        self.text_edit.setMinimumWidth(450)
+        self.text_edit.setFixedHeight(250)
         self.text_edit.textChanged.connect(self.save_notes)
         layout.addWidget(self.text_edit)
 

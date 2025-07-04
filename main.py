@@ -31,22 +31,23 @@ if __name__ == "__main__":
     sys.exit(app.exec())
     
     
-    import sys
+import sys
 import xml.etree.ElementTree as ET
 from PySide2.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QPushButton, QFileDialog
 )
 
+
 class ParameterFinder(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fixed ParameterID Finder")
-        self.setGeometry(300, 300, 600, 400)
+        self.setWindowTitle("ParameterID Finder (디버깅용)")
+        self.setGeometry(300, 300, 650, 450)
 
         layout = QVBoxLayout()
 
-        # [1] 파일 선택
+        # [1] XML 파일 선택
         file_layout = QHBoxLayout()
         self.file_button = QPushButton("XML 파일 선택")
         self.file_button.clicked.connect(self.select_file)
@@ -55,33 +56,37 @@ class ParameterFinder(QWidget):
         file_layout.addWidget(self.file_label)
         layout.addLayout(file_layout)
 
-        # [2] 고정된 Parameter 이름 출력
-        fixed_names = [
-            "e-Column.IGP1", "e-Column.IGP2", "e-Column.IGP3",
-            "e-Column.IGP4", "e-Column.IGP5", "e-Column.IGP6",
-            "e-Column.IGP7", "e-Column.IGP8", "e-Column.IGP9",
-            "e-Column.IGP10", "e-Column.IGP11"
-        ]
-        self.fixed_names = fixed_names  # 고정 이름 저장
-
-        # [3] 결과 출력
+        # [2] 결과 출력 영역
+        layout.addWidget(QLabel("검색 결과 (ParameterID):"))
         self.result_area = QTextEdit()
         self.result_area.setReadOnly(True)
         layout.addWidget(self.result_area)
 
-        # [4] 검색 버튼
-        self.search_button = QPushButton("ParameterID 검색")
+        # [3] 검색 버튼
+        self.search_button = QPushButton("검색 실행")
         self.search_button.clicked.connect(self.search_parameter_ids)
         layout.addWidget(self.search_button)
 
         self.setLayout(layout)
         self.xml_file = None
 
+        # [4] 고정된 Parameter 이름 리스트 (수정된 버전)
+        self.fixed_names = [
+            "I-Column.IGP1", "I-Column.IGP2", "I-Column.IGP3",
+            "I-Column.IGP4", "I-Column.IGP5", "I-Column.IGP6",
+            "I-Column.IGP7", "I-Column.IGP8", "I-Column.IGP9",
+            "I-Column.IGP10", "I-Column.IGP11"
+        ]
+
     def select_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "XML 파일 선택", "", "XML Files (*.xml)")
         if file_path:
             self.xml_file = file_path
             self.file_label.setText(file_path)
+            print(f"[파일 선택됨] {file_path}")
+
+    def is_valid_id(self, pid):
+        return pid and pid.isdigit() and len(pid) == 4
 
     def search_parameter_ids(self):
         if not self.xml_file:
@@ -94,11 +99,18 @@ class ParameterFinder(QWidget):
 
             found_map = {name: None for name in self.fixed_names}
 
+            print("=== XML 내 Parameter 정보 ===")
             for value_data in root.iter("ValueData"):
-                pname = value_data.get("Parameter")
-                pid = value_data.get("ParameterID")
+                pname = value_data.get("Parameter", "").strip()
+                pid = value_data.get("ParameterID", "").strip()
+                print(f"XML: Parameter = '{pname}', ID = '{pid}'")
+
                 if pname in found_map and found_map[pname] is None:
-                    found_map[pname] = pid
+                    if self.is_valid_id(pid):
+                        found_map[pname] = pid
+                        print(f"✅ 매칭됨 → [{pname}] → ID {pid}")
+                    else:
+                        print(f"⚠ 유효하지 않은 ID 형식: '{pid}'")
 
             result_lines = []
             for name in self.fixed_names:
@@ -111,6 +123,8 @@ class ParameterFinder(QWidget):
 
         except Exception as e:
             self.result_area.setText(f"❌ XML 파싱 실패: {e}")
+            print(f"[예외 발생] {e}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

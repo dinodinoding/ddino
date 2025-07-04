@@ -38,7 +38,7 @@ class MultiLineSummaryBox(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         font = QFont("Arial", 10)
-        layout.setSpacing(0)  # 전체 레이아웃 줄 간격 제거
+        layout.setSpacing(0)  # 전체 줄 간격 최소화
 
         if title:
             title_label = QLabel(title)
@@ -60,13 +60,11 @@ class MultiLineSummaryBox(QWidget):
                         if len(parts) == 2:
                             value = parts[1].strip()
 
-                            # 🔹 apercurr → 줄바꿈 처리
                             if keyword == "apercurr":
                                 value = value.replace("/", "\n")
                                 results.append(f"{label_prefix}\n{value}")
                             else:
                                 results.append(f"{label_prefix} {value}")
-
                             matched = True
                             break
                 if not matched:
@@ -76,8 +74,14 @@ class MultiLineSummaryBox(QWidget):
 
         for line in results:
             if '\n' in line:
-                for subline in line.split('\n'):
-                    lbl = QLabel(subline)
+                for i, subline in enumerate(line.split('\n')):
+                    subline = subline.strip()
+                    if not subline:
+                        continue  # ✅ 빈 줄 생략
+                    if i == 0:
+                        lbl = QLabel(subline)
+                    else:
+                        lbl = QLabel(f"    {subline}")  # 값 줄 들여쓰기
                     lbl.setFont(font)
                     lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")
                     layout.addWidget(lbl)
@@ -130,7 +134,7 @@ class SemAlignStigSection(QWidget):
         layout.addLayout(graph_layout)
 
 # ─────────────────────────────────────────────────────────────
-# 🔹 메모 게시판 (자동 저장/불러오기, 크기 조정)
+# 🔹 메모 박스
 class MemoBoardBox(QWidget):
     def __init__(self, note_path="settings/user_notes.txt"):
         super().__init__()
@@ -173,7 +177,7 @@ class TextViewTab(QWidget):
         data_file = config.get("data_file")
         summary_config = load_summary_config()
 
-        # 🔹 왼쪽 레이아웃 순서
+        # 왼쪽 순서: FEG → SemAlign → SGIS → MGIS → IGP
         for title in ["FEG"]:
             if title in summary_config:
                 left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
@@ -184,7 +188,7 @@ class TextViewTab(QWidget):
             if title in summary_config:
                 left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
 
-        # 🔹 오른쪽 레이아웃 순서
+        # 오른쪽 순서: LMIS → FIB_Aperture → 메모
         for title in ["LMIS", "FIB_Aperture"]:
             if title in summary_config:
                 right_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))

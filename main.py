@@ -38,16 +38,15 @@ from PySide2.QtWidgets import (
     QLabel, QTextEdit, QPushButton, QFileDialog
 )
 
-
 class ParameterFinder(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ParameterID Finder (디버깅용)")
-        self.setGeometry(300, 300, 650, 450)
+        self.setWindowTitle("ParameterID Finder (진단 포함)")
+        self.setGeometry(300, 300, 700, 500)
 
         layout = QVBoxLayout()
 
-        # [1] XML 파일 선택
+        # 파일 선택
         file_layout = QHBoxLayout()
         self.file_button = QPushButton("XML 파일 선택")
         self.file_button.clicked.connect(self.select_file)
@@ -56,21 +55,20 @@ class ParameterFinder(QWidget):
         file_layout.addWidget(self.file_label)
         layout.addLayout(file_layout)
 
-        # [2] 결과 출력 영역
-        layout.addWidget(QLabel("검색 결과 (ParameterID):"))
+        # 결과 출력창
         self.result_area = QTextEdit()
         self.result_area.setReadOnly(True)
         layout.addWidget(self.result_area)
 
-        # [3] 검색 버튼
-        self.search_button = QPushButton("검색 실행")
+        # 검색 버튼
+        self.search_button = QPushButton("ParameterID 검색")
         self.search_button.clicked.connect(self.search_parameter_ids)
         layout.addWidget(self.search_button)
 
         self.setLayout(layout)
         self.xml_file = None
 
-        # [4] 고정된 Parameter 이름 리스트 (수정된 버전)
+        # 고정된 Parameter 이름 목록
         self.fixed_names = [
             "I-Column.IGP1", "I-Column.IGP2", "I-Column.IGP3",
             "I-Column.IGP4", "I-Column.IGP5", "I-Column.IGP6",
@@ -99,18 +97,26 @@ class ParameterFinder(QWidget):
 
             found_map = {name: None for name in self.fixed_names}
 
-            print("=== XML 내 Parameter 정보 ===")
-            for value_data in root.iter("ValueData"):
-                pname = value_data.get("Parameter", "").strip()
-                pid = value_data.get("ParameterID", "").strip()
-                print(f"XML: Parameter = '{pname}', ID = '{pid}'")
+            print("=== 전체 태그 구조 미리 보기 ===")
+            for elem in root.iter():
+                print(f"태그: {elem.tag} | 속성: {elem.attrib}")
 
-                if pname in found_map and found_map[pname] is None:
-                    if self.is_valid_id(pid):
-                        found_map[pname] = pid
-                        print(f"✅ 매칭됨 → [{pname}] → ID {pid}")
-                    else:
-                        print(f"⚠ 유효하지 않은 ID 형식: '{pid}'")
+            print("=== XML 내 Parameter 정보 탐색 ===")
+            for elem in root.iter():
+                # 네임스페이스 제거 처리
+                tag_name = elem.tag.split('}')[-1]  # {namespace}ValueData → ValueData
+
+                if tag_name.lower() == "valuedata":
+                    pname = elem.get("Parameter", "").strip()
+                    pid = elem.get("ParameterID", "").strip()
+                    print(f"발견: Parameter = '{pname}', ID = '{pid}'")
+
+                    if pname in found_map and found_map[pname] is None:
+                        if self.is_valid_id(pid):
+                            found_map[pname] = pid
+                            print(f"✅ 매칭됨: [{pname}] → {pid}")
+                        else:
+                            print(f"⚠ ID 형식 오류: '{pid}'")
 
             result_lines = []
             for name in self.fixed_names:
@@ -124,7 +130,6 @@ class ParameterFinder(QWidget):
         except Exception as e:
             self.result_area.setText(f"❌ XML 파싱 실패: {e}")
             print(f"[예외 발생] {e}")
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

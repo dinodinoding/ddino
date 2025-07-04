@@ -38,7 +38,7 @@ class MultiLineSummaryBox(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         font = QFont("Arial", 10)
-        layout.setSpacing(0)  # 전체 줄 간격 최소화
+        layout.setSpacing(0)
 
         if title:
             title_label = QLabel(title)
@@ -77,11 +77,11 @@ class MultiLineSummaryBox(QWidget):
                 for i, subline in enumerate(line.split('\n')):
                     subline = subline.strip()
                     if not subline:
-                        continue  # ✅ 빈 줄 생략
+                        continue
                     if i == 0:
                         lbl = QLabel(subline)
                     else:
-                        lbl = QLabel(f"    {subline}")  # 값 줄 들여쓰기
+                        lbl = QLabel(f"    {subline}")
                     lbl.setFont(font)
                     lbl.setStyleSheet("margin:0px; padding:0px; line-height:90%;")
                     layout.addWidget(lbl)
@@ -134,21 +134,27 @@ class SemAlignStigSection(QWidget):
         layout.addLayout(graph_layout)
 
 # ─────────────────────────────────────────────────────────────
-# 🔹 메모 박스
+# 🔹 메모 박스 (절대 경로 적용)
 class MemoBoardBox(QWidget):
-    def __init__(self, note_path="settings/user_notes.txt"):
+    def __init__(self, note_path=None):
         super().__init__()
-        self.note_path = note_path
+
+        if note_path is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.note_path = os.path.join(base_dir, "settings", "user_notes.txt")
+        else:
+            self.note_path = note_path
+
         layout = QVBoxLayout(self)
 
-        label = QLabel("MotePad")
+        label = QLabel("NOTEPAD")
         label.setFont(QFont("Arial", 12, QFont.Bold))
         layout.addWidget(label)
 
         self.text_edit = QTextEdit()
         self.text_edit.setPlaceholderText("메모를 입력하세요...")
         self.text_edit.setMinimumWidth(450)
-        self.text_edit.setFixedHeight(450)
+        self.text_edit.setFixedHeight(350)
         self.text_edit.textChanged.connect(self.save_notes)
         layout.addWidget(self.text_edit)
 
@@ -177,7 +183,7 @@ class TextViewTab(QWidget):
         data_file = config.get("data_file")
         summary_config = load_summary_config()
 
-        # 왼쪽 순서: FEG → SemAlign → SGIS → MGIS → IGP
+        # 왼쪽: FEG → SemAlign → SGIS → MGIS → IGP
         for title in ["FEG"]:
             if title in summary_config:
                 left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
@@ -188,12 +194,12 @@ class TextViewTab(QWidget):
             if title in summary_config:
                 left_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
 
-        # 오른쪽 순서: LMIS → FIB_Aperture → 메모
+        # 오른쪽: LMIS → FIB_Aperture → 메모
         for title in ["LMIS", "FIB_Aperture"]:
             if title in summary_config:
                 right_layout.addWidget(MultiLineSummaryBox(data_file, summary_config[title].items(), title))
 
-        right_layout.addWidget(MemoBoardBox("settings/user_notes.txt"))
+        right_layout.addWidget(MemoBoardBox())
 
         layout.addLayout(left_layout)
         layout.addLayout(right_layout)

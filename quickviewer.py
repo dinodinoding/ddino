@@ -120,7 +120,18 @@ def create_gui():
     text_area.insert("1.0", "\n".join(summary))
     text_area.config(state="disabled")
 
-    # 하단 프레임 (수평 구성)
+    # --- 요약 내용 자동 갱신 함수 ---
+    def refresh_summary():
+        new_summary = extract_summary_lines(filepath)
+        text_area.config(state="normal")
+        text_area.delete("1.0", tk.END)
+        text_area.insert("1.0", "\n".join(new_summary))
+        text_area.config(state="disabled")
+        popup.after(3600000, refresh_summary)  # 1시간 후 반복
+
+    refresh_summary()  # 즉시 실행 & 타이머 시작
+
+    # 하단 프레임
     bottom_frame = tk.Frame(popup, bg=popup["bg"])
     bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 

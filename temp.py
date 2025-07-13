@@ -6,9 +6,9 @@ CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
 WIDTH_SCALE = 1.3
 BASE_WIDTH = int(300 * WIDTH_SCALE)
-BASE_HEIGHT = int(270 * WIDTH_SCALE)
+BASE_HEIGHT = int(240 * WIDTH_SCALE)
 TEXT_WIDTH = int(135 * WIDTH_SCALE)
-TEXT_HEIGHT = int(170 * WIDTH_SCALE)
+TEXT_HEIGHT = int(200 * WIDTH_SCALE)
 
 def load_config():
     base = getattr(sys, "frozen", False) and sys.executable or __file__
@@ -123,24 +123,19 @@ def create_gui():
 
     left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
     right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
-    bottom_text = create_text_area(popup, 10, 20 + TEXT_HEIGHT, BASE_WIDTH - 20, 25)
-    bottom_text.config(state="normal")
-    bottom_text.insert("1.0", "▼ Loading...")
-    bottom_text.config(state="disabled")
 
     def update_text_areas(items):
         left_lines = [line for key, line in items if key in left_keys or key not in right_keys]
         right_lines = [line for key, line in items if key in right_keys]
 
-        for box in [left_text, right_text, bottom_text]:
+        for box in [left_text, right_text]:
             box.config(state="normal")
             box.delete("1.0", tk.END)
 
         left_text.insert("1.0", "\n".join(left_lines))
         right_text.insert("1.0", "\n".join(right_lines))
-        bottom_text.insert("1.0", f"▲ Updated - Total: {len(items)} items")
 
-        for box in [left_text, right_text, bottom_text]:
+        for box in [left_text, right_text]:
             box.config(state="disabled")
 
     def refresh_summary():

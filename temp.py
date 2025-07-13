@@ -15,18 +15,15 @@ HEIGHT = 286
 TEXT_WIDTH = 175
 TEXT_HEIGHT = 260
 
-# global 변수로 config를 선언하여 다른 함수에서도 접근 가능하도록 합니다.
-# 실제 애플리케이션에서는 이 방법보다는 필요한 함수에 인자로 전달하는 것이 더 좋습니다.
-# 여기서는 편의상 global로 선언합니다.
 _config = {}
 
 # ─────────────────────────────────────────────
 def load_config():
-    global _config # _config 변수를 전역 변수로 사용
+    global _config
     base = getattr(sys, "frozen", False) and sys.executable or __file__
     path = os.path.join(os.path.dirname(base), CONFIG_PATH)
     if not os.path.exists(path):
-        _config = {} # 파일이 없으면 빈 딕셔너리로 초기화
+        _config = {}
         return _config
     with open(path, "r", encoding="utf-8") as f:
         _config = json.load(f)
@@ -105,32 +102,25 @@ def bind_window_drag(window):
     window.bind("<ButtonPress-1>", start_move)
     window.bind("<B1-Motion>", do_move)
 
-# launch_detail_view 함수를 config에서 경로를 불러오도록 수정
 def launch_detail_view():
-    # _config 전역 변수에서 "detail_file_path"를 가져옵니다.
-    # 기본값으로 빈 문자열을 설정하여 키가 없을 때 오류 방지
     target = _config.get("detail_file_path", "")
-    
+
     if not target:
         tk.messagebox.showerror("경로 오류", "config.json에 'detail_file_path'가 설정되지 않았습니다.")
         return
 
-    # 파일 또는 디렉토리가 존재하는지 확인
     if not os.path.exists(target):
         tk.messagebox.showerror("파일 없음", f"지정된 경로의 파일이나 폴더가 존재하지 않습니다:\n{target}")
         return
 
     try:
-        # 파일 또는 디렉토리를 엽니다.
-        # 'start' 명령은 파일, 디렉토리, URL 등을 기본 프로그램으로 엽니다.
         subprocess.Popen(["start", "", target], shell=True)
     except Exception as e:
         tk.messagebox.showerror("실행 오류", f"파일을 열 수 없습니다:\n{e}")
 
 # ─────────────────────────────────────────────
 def create_gui():
-    # config를 로드합니다. 이제 _config 전역 변수에 저장됩니다.
-    load_config() 
+    load_config()
     filepath = os.path.abspath(_config.get("data_file", ""))
     left_keys = _config.get("left_keywords", [])
     right_keys = _config.get("right_keywords", [])
@@ -139,25 +129,76 @@ def create_gui():
     root = tk.Tk()
     root.withdraw()
 
+    # --- UI 초기 설정 함수 ---
+    def _setup_main_window(popup_window):
+        """팝업 창의 기본 속성(테두리, 배경, 투명도, 위치)을 설정합니다."""
+        popup_window.overrideredirect(True)
+        popup_window.configure(bg=BG_COLOR)
+        popup_window.attributes("-topmost", False)
+        popup_window.attributes("-alpha", 0.95)
+        popup_window.lower() # 창을 맨 뒤로 보내려고 시도
+
+        screen_w = popup_window.winfo_screenwidth()
+        screen_h = popup_window.winfo_screenheight()
+        x = screen_w - WIDTH - 20
+        y = (screen_h // 2) - (HEIGHT // 2)
+        popup_window.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
+
+        bind_window_drag(popup_window) # 창 드래그 기능 바인딩
+
+    # --- 텍스트 영역 생성 함수 ---
+    def _create_text_display_areas(popup_window):
+        """로그 요약 내용을 표시할 좌우 텍스트 박스를 생성합니다."""
+        # 텍스트 박스 높이 조정: 하단 컨트롤을 위한 공간 확보 (약 30픽셀)
+        nonlocal left_text, right_text # 중첩 함수에서 외부 함수의 변수 참조
+        left_text = create_text_area(popup_window, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
+        right_text = create_text_area(popup_window, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
+
+    # --- 하단 컨트롤 버튼 생성 함수 ---
+    def _create_bottom_controls(popup_window):
+        """자동 실행 체크박스, 종료 버튼, Details 버튼을 포함하는 하단 컨트롤 영역을 생성합니다."""
+        bottom_frame = tk.Frame(popup_window, bg=BG_COLOR)
+        bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10) # 오른쪽 하단에 위치
+
+        control_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
+        control_frame.pack(side="right") # bottom_frame 안에서 오른쪽으로 정렬
+
+        # Details 버튼 섹션
+        detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
+        tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
+                  bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right")
+        tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right")
+        detail_frame.pack(side="right", padx=(0,10))
+
+        # X (종료) 버튼
+        tk.Button(control_frame, text="X", command=lambda: sys.exit(),
+                  width=2, height=1, relief="flat",
+                  bg=BG_COLOR, activebackground=BG_COLOR,
+                  borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10))
+
+        # 자동 실행 체크박스
+        var_autorun = tk.BooleanVar(value=is_autorun_enabled())
+        tk.Checkbutton(control_frame, text="Auto-run on Startup",
+                       variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
+                       bg=BG_COLOR, activebackground=BG_COLOR,
+                       highlightthickness=0, relief="flat").pack(side="right")
+
+    # --- 실제 GUI 구성 ---
     popup = tk.Toplevel()
-    popup.overrideredirect(True)
-    popup.configure(bg=BG_COLOR)
-    popup.attributes("-topmost", False)
-    popup.attributes("-alpha", 0.95)
-    popup.lower() # 창을 맨 뒤로 보내려고 시도
 
-    screen_w = popup.winfo_screenwidth()
-    screen_h = popup.winfo_screenheight()
-    x = screen_w - WIDTH - 20
-    y = (screen_h // 2) - (HEIGHT // 2)
-    popup.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
+    # 분리된 함수 호출
+    _setup_main_window(popup)
+    _create_text_display_areas(popup) # 이 함수가 left_text, right_text를 초기화함
+    _create_bottom_controls(popup)
 
-    bind_window_drag(popup)
+    # 이 두 변수는 _create_text_display_areas 함수에서 초기화되므로,
+    # 그 후에 사용해야 합니다. nonlocal 키워드를 사용하여 함수 내에서 접근.
+    left_text = None
+    right_text = None
 
-    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
-    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
 
     def update_text_areas(items):
+        nonlocal left_text, right_text # 중첩 함수에서 외부 함수의 변수 참조
         left_lines = []
         right_lines = []
         for key, line in items:
@@ -181,31 +222,6 @@ def create_gui():
         items = extract_summary_items(filepath, keyword_map)
         update_text_areas(items)
         popup.after(3600000, refresh_summary)
-
-    update_text_areas(extract_summary_items(filepath, keyword_map))
-
-    bottom_frame = tk.Frame(popup, bg=BG_COLOR)
-    bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
-
-    control_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
-    control_frame.pack(side="right")
-
-    detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
-    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view, # 함수 호출 그대로 유지
-              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right")
-    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right")
-    detail_frame.pack(side="right", padx=(0,10))
-
-    tk.Button(control_frame, text="X", command=lambda: sys.exit(),
-              width=2, height=1, relief="flat",
-              bg=BG_COLOR, activebackground=BG_COLOR,
-              borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10))
-
-    var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    tk.Checkbutton(control_frame, text="Auto-run on Startup",
-                   variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
-                   bg=BG_COLOR, activebackground=BG_COLOR,
-                   highlightthickness=0, relief="flat").pack(side="right")
 
     refresh_summary()
     popup.mainloop()

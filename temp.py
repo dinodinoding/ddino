@@ -1,18 +1,17 @@
 import tkinter as tk
-from tkinter import messagebox
 import subprocess
 import os
 import sys
 import json
 import winreg
 
-# --- 기본 경로 설정 ---
+# 기본 경로 설정
 if getattr(sys, "frozen", False):
     base_path = os.path.dirname(sys.executable)
 else:
     base_path = os.path.dirname(__file__)
 
-# --- config.json 불러오기 ---
+# config.json 로드
 def load_config():
     config_path = os.path.join(base_path, "settings", "config.json")
     if not os.path.exists(config_path):
@@ -20,7 +19,7 @@ def load_config():
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# --- 윈도우 자동 실행 설정 ---
+# 윈도우 시작 자동실행 등록
 APP_NAME = "QuickLogViewer"
 def set_autorun(enable):
     reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -43,7 +42,7 @@ def is_autorun_enabled():
     except FileNotFoundError:
         return False
 
-# --- 로그 요약 추출 ---
+# 로그에서 요약 항목 추출
 def extract_summary_items(filepath):
     config = load_config()
     keyword_map = config.get("keyword_display_map", {})
@@ -82,15 +81,15 @@ def extract_summary_items(filepath):
                 break
     return summary
 
-# --- 상세 파일 열기 ---
+# 상세 보기 파일 열기
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
         subprocess.Popen(["start", "", target], shell=True)
     except Exception as e:
-        messagebox.showerror("Launch error", f"Failed to open: {e}")
+        tk.messagebox.showerror("Launch error", f"Failed to open: {e}")
 
-# --- GUI 생성 ---
+# GUI 생성
 def create_gui():
     config = load_config()
     filepath = config.get("data_file", "")
@@ -104,10 +103,7 @@ def create_gui():
 
     popup = tk.Toplevel()
     popup.overrideredirect(True)
-    popup.attributes("-topmost", True)
-    popup.attributes("-alpha", 0.5)
-
-    # 배경색 통일
+    popup.attributes("-topmost", False)  # 항상 위에 있지 않게
     bg_color = "#f0f0f0"
     popup.configure(bg=bg_color)
 
@@ -119,8 +115,10 @@ def create_gui():
     y = (screen_height // 2) - (height // 2)
     popup.geometry(f"{width}x{height}+{x}+{y}")
 
+    # 마우스로 창 이동
     def start_move(event):
         popup.x = event.x
+        popup.y = event.y
     def do_move(event):
         dx = event.x - popup.x
         dy = event.y - popup.y
@@ -174,7 +172,6 @@ def create_gui():
         update_text_areas(items)
         popup.after(3600000, refresh_summary)
 
-    # 초기 표시
     items = extract_summary_items(filepath)
     update_text_areas(items)
 

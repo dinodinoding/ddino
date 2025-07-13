@@ -1,12 +1,18 @@
+import os
+import sys
+import json
+import re
 import tkinter as tk
-import os, sys, json, subprocess, re, winreg
+import subprocess
+import winreg
 
+# 기본 설정
 APP_NAME = "QuickLogViewer"
 CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
 WIDTH_SCALE = 1.3
-BASE_WIDTH = int(300 * WIDTH_SCALE)
-BASE_HEIGHT = int(240 * WIDTH_SCALE)
+WIDTH = int(300 * WIDTH_SCALE)
+HEIGHT = int(220 * WIDTH_SCALE)
 TEXT_WIDTH = int(135 * WIDTH_SCALE)
 TEXT_HEIGHT = int(200 * WIDTH_SCALE)
 
@@ -115,9 +121,9 @@ def create_gui():
 
     screen_w = popup.winfo_screenwidth()
     screen_h = popup.winfo_screenheight()
-    x = screen_w - BASE_WIDTH - 20
-    y = (screen_h // 2) - (BASE_HEIGHT // 2)
-    popup.geometry(f"{BASE_WIDTH}x{BASE_HEIGHT}+{x}+{y}")
+    x = screen_w - WIDTH - 20
+    y = (screen_h // 2) - (HEIGHT // 2)
+    popup.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
 
     bind_window_drag(popup)
 
@@ -125,8 +131,15 @@ def create_gui():
     right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
 
     def update_text_areas(items):
-        left_lines = [line for key, line in items if key in left_keys or key not in right_keys]
-        right_lines = [line for key, line in items if key in right_keys]
+        left_lines = []
+        right_lines = []
+        for key, line in items:
+            if key in right_keys:
+                # 오른쪽만 / 기준 줄바꿈 처리 (/// → \n)
+                line = re.sub(r'/+', '\n', line)
+                right_lines.append(line)
+            else:
+                left_lines.append(line)
 
         for box in [left_text, right_text]:
             box.config(state="normal")

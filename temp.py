@@ -1,123 +1,3 @@
-import os
-import sys
-import json
-import re
-import tkinter as tk
-import subprocess
-import winreg
-
-APP_NAME = "QuickLogViewer"
-CONFIG_PATH = os.path.join("settings", "config.json")
-BG_COLOR = "#f0f0f0"
-
-WIDTH = 390
-HEIGHT = 286
-TEXT_WIDTH = 175
-TEXT_HEIGHT = 260
-
-_config = {}
-
-# ─────────────────────────────────────────────
-def load_config():
-    global _config
-    base = getattr(sys, "frozen", False) and sys.executable or __file__
-    path = os.path.join(os.path.dirname(base), CONFIG_PATH)
-    if not os.path.exists(path):
-        _config = {}
-        return _config
-    with open(path, "r", encoding="utf-8") as f:
-        _config = json.load(f)
-        return _config
-
-def set_autorun(enable):
-    reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    exe_path = sys.executable
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_ALL_ACCESS) as key:
-        if enable:
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
-        else:
-            try:
-                winreg.DeleteValue(key, APP_NAME)
-            except FileNotFoundError:
-                pass
-
-def is_autorun_enabled():
-    reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
-            value, _ = winreg.QueryValueEx(key, APP_NAME)
-            return os.path.normcase(value) == os.path.normcase(sys.executable)
-    except FileNotFoundError:
-        return False
-
-def extract_value_after_data(line):
-    parts = re.split(r'\s+data\s+', line.strip(), maxsplit=1)
-    if len(parts) == 2:
-        return parts[1].strip()
-    return None
-
-def extract_summary_items(filepath, keyword_map):
-    if os.path.isdir(filepath):
-        txts = [f for f in os.listdir(filepath) if f.endswith(".txt")]
-        if not txts:
-            return []
-        filepath = os.path.join(filepath, txts[0])
-
-    if not os.path.isfile(filepath):
-        return []
-
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-    except PermissionError:
-        return []
-
-    result = []
-    for line in lines:
-        line_lower = line.strip().lower()
-        for keyword in keyword_map:
-            if keyword in line_lower and 'data' in line_lower:
-                value = extract_value_after_data(line)
-                if value:
-                    display = keyword_map[keyword].replace("{value}", value)
-                    result.append((keyword, display))
-                    break
-    return result
-
-def create_text_area(parent, x, y, w, h):
-    box = tk.Text(parent, wrap="word", font=("Courier", 10),
-                  bg=BG_COLOR, relief="flat", highlightthickness=0)
-    box.place(x=x, y=y, width=w, height=h)
-    box.config(state="disabled")
-    return box
-
-def bind_window_drag(window):
-    def start_move(event):
-        window.x = event.x
-        window.y = event.y
-    def do_move(event):
-        dx = event.x - window.x
-        dy = event.y - window.y
-        window.geometry(f"+{window.winfo_x() + dx}+{window.winfo_y() + dy}")
-    window.bind("<ButtonPress-1>", start_move)
-    window.bind("<B1-Motion>", do_move)
-
-def launch_detail_view():
-    target = _config.get("detail_file_path", "")
-
-    if not target:
-        tk.messagebox.showerror("경로 오류", "config.json에 'detail_file_path'가 설정되지 않았습니다.")
-        return
-
-    if not os.path.exists(target):
-        tk.messagebox.showerror("파일 없음", f"지정된 경로의 파일이나 폴더가 존재하지 않습니다:\n{target}")
-        return
-
-    try:
-        subprocess.Popen(["start", "", target], shell=True)
-    except Exception as e:
-        tk.messagebox.showerror("실행 오류", f"파일을 열 수 없습니다:\n{e}")
-
 # ─────────────────────────────────────────────
 def create_gui():
     load_config()
@@ -128,6 +8,13 @@ def create_gui():
 
     root = tk.Tk()
     root.withdraw()
+
+    popup = tk.Toplevel()
+
+    # left_text와 right_text를 create_gui 함수 스코프에 미리 선언합니다.
+    # 초기값은 None으로 두어도 되지만, 곧바로 _create_text_display_areas에서 할당될 것입니다.
+    left_text = None
+    right_text = None
 
     # --- UI 초기 설정 함수 ---
     def _setup_main_window(popup_window):
@@ -149,56 +36,51 @@ def create_gui():
     # --- 텍스트 영역 생성 함수 ---
     def _create_text_display_areas(popup_window):
         """로그 요약 내용을 표시할 좌우 텍스트 박스를 생성합니다."""
-        # 텍스트 박스 높이 조정: 하단 컨트롤을 위한 공간 확보 (약 30픽셀)
-        nonlocal left_text, right_text # 중첩 함수에서 외부 함수의 변수 참조
+        # nonlocal 대신, 함수가 값을 반환하도록 변경하거나,
+        # 외부 스코프의 변수를 직접 할당합니다.
+        # 여기서는 외부 스코프의 left_text, right_text에 직접 할당합니다.
+        nonlocal left_text, right_text # <-- 이 줄은 그대로 둡니다.
+
         left_text = create_text_area(popup_window, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
         right_text = create_text_area(popup_window, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
+
 
     # --- 하단 컨트롤 버튼 생성 함수 ---
     def _create_bottom_controls(popup_window):
         """자동 실행 체크박스, 종료 버튼, Details 버튼을 포함하는 하단 컨트롤 영역을 생성합니다."""
         bottom_frame = tk.Frame(popup_window, bg=BG_COLOR)
-        bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10) # 오른쪽 하단에 위치
+        bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
         control_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
-        control_frame.pack(side="right") # bottom_frame 안에서 오른쪽으로 정렬
+        control_frame.pack(side="right")
 
-        # Details 버튼 섹션
         detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
         tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
                   bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right")
         tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right")
         detail_frame.pack(side="right", padx=(0,10))
 
-        # X (종료) 버튼
-        tk.Button(control_frame, text="X", command=lambda: sys.exit(),
+        tk.Button(control_frame, text="X", command=lambda: popup.destroy(), # sys.exit() 대신 popup.destroy() 사용
                   width=2, height=1, relief="flat",
                   bg=BG_COLOR, activebackground=BG_COLOR,
                   borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10))
 
-        # 자동 실행 체크박스
         var_autorun = tk.BooleanVar(value=is_autorun_enabled())
         tk.Checkbutton(control_frame, text="Auto-run on Startup",
                        variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
                        bg=BG_COLOR, activebackground=BG_COLOR,
                        highlightthickness=0, relief="flat").pack(side="right")
 
-    # --- 실제 GUI 구성 ---
-    popup = tk.Toplevel()
-
-    # 분리된 함수 호출
+    # --- 실제 GUI 구성 실행 순서 조정 ---
     _setup_main_window(popup)
-    _create_text_display_areas(popup) # 이 함수가 left_text, right_text를 초기화함
-    _create_bottom_controls(popup)
+    _create_text_display_areas(popup) # 텍스트 영역 먼저 생성하여 변수 초기화
 
-    # 이 두 변수는 _create_text_display_areas 함수에서 초기화되므로,
-    # 그 후에 사용해야 합니다. nonlocal 키워드를 사용하여 함수 내에서 접근.
-    left_text = None
-    right_text = None
-
+    # 이제 left_text와 right_text는 _create_text_display_areas에서 실제 위젯 객체로 할당되었습니다.
 
     def update_text_areas(items):
-        nonlocal left_text, right_text # 중첩 함수에서 외부 함수의 변수 참조
+        # nonlocal 키워드는 _create_text_display_areas에서 이미 변수를 할당했으므로,
+        # 여기서는 더 이상 필요하지 않습니다. 외부 스코프의 변수를 사용합니다.
+        # nonlocal left_text, right_text # 이 줄을 제거하거나 주석 처리합니다.
         left_lines = []
         right_lines = []
         for key, line in items:
@@ -218,12 +100,11 @@ def create_gui():
         for box in [left_text, right_text]:
             box.config(state="disabled")
 
-    def refresh_summary():
-        items = extract_summary_items(filepath, keyword_map)
-        update_text_areas(items)
-        popup.after(3600000, refresh_summary)
+    _create_bottom_controls(popup) # 텍스트 영역 생성 후 컨트롤 생성
 
-    refresh_summary()
+    # 첫 요약 업데이트 호출 (이제 left_text와 right_text가 유효합니다)
+    update_text_areas(extract_summary_items(filepath, keyword_map))
+    refresh_summary() # 초기 호출 및 주기적 갱신 설정
     popup.mainloop()
 
 if __name__ == "__main__":

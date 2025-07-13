@@ -10,20 +10,27 @@ APP_NAME = "QuickLogViewer"
 CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
 
-# 요청사항 2: WIDTH_SCALE 대신 고정 사이즈로 변경
 WIDTH = 390
 HEIGHT = 286
 TEXT_WIDTH = 175
 TEXT_HEIGHT = 260
 
+# global 변수로 config를 선언하여 다른 함수에서도 접근 가능하도록 합니다.
+# 실제 애플리케이션에서는 이 방법보다는 필요한 함수에 인자로 전달하는 것이 더 좋습니다.
+# 여기서는 편의상 global로 선언합니다.
+_config = {}
+
 # ─────────────────────────────────────────────
 def load_config():
+    global _config # _config 변수를 전역 변수로 사용
     base = getattr(sys, "frozen", False) and sys.executable or __file__
     path = os.path.join(os.path.dirname(base), CONFIG_PATH)
     if not os.path.exists(path):
-        return {}
+        _config = {} # 파일이 없으면 빈 딕셔너리로 초기화
+        return _config
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        _config = json.load(f)
+        return _config
 
 def set_autorun(enable):
     reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -98,20 +105,36 @@ def bind_window_drag(window):
     window.bind("<ButtonPress-1>", start_move)
     window.bind("<B1-Motion>", do_move)
 
+# launch_detail_view 함수를 config에서 경로를 불러오도록 수정
 def launch_detail_view():
-    target = os.path.join("C:\\monitoring", "listlist.txt")
+    # _config 전역 변수에서 "detail_file_path"를 가져옵니다.
+    # 기본값으로 빈 문자열을 설정하여 키가 없을 때 오류 방지
+    target = _config.get("detail_file_path", "")
+    
+    if not target:
+        tk.messagebox.showerror("경로 오류", "config.json에 'detail_file_path'가 설정되지 않았습니다.")
+        return
+
+    # 파일 또는 디렉토리가 존재하는지 확인
+    if not os.path.exists(target):
+        tk.messagebox.showerror("파일 없음", f"지정된 경로의 파일이나 폴더가 존재하지 않습니다:\n{target}")
+        return
+
     try:
+        # 파일 또는 디렉토리를 엽니다.
+        # 'start' 명령은 파일, 디렉토리, URL 등을 기본 프로그램으로 엽니다.
         subprocess.Popen(["start", "", target], shell=True)
     except Exception as e:
-        tk.messagebox.showerror("Launch error", f"Failed to open: {e}")
+        tk.messagebox.showerror("실행 오류", f"파일을 열 수 없습니다:\n{e}")
 
 # ─────────────────────────────────────────────
 def create_gui():
-    config = load_config()
-    filepath = os.path.abspath(config.get("data_file", ""))
-    left_keys = config.get("left_keywords", [])
-    right_keys = config.get("right_keywords", [])
-    keyword_map = config.get("keyword_display_map", {})
+    # config를 로드합니다. 이제 _config 전역 변수에 저장됩니다.
+    load_config() 
+    filepath = os.path.abspath(_config.get("data_file", ""))
+    left_keys = _config.get("left_keywords", [])
+    right_keys = _config.get("right_keywords", [])
+    keyword_map = _config.get("keyword_display_map", {})
 
     root = tk.Tk()
     root.withdraw()
@@ -120,9 +143,8 @@ def create_gui():
     popup.overrideredirect(True)
     popup.configure(bg=BG_COLOR)
     popup.attributes("-topmost", False)
-    # 요청사항 3: 투명도 0.5 설정
-    popup.attributes("-alpha", 0.95) # 0.5는 너무 투명할 수 있어 0.95로 조정했습니다. 0.5 원하시면 변경해주세요.
-
+    popup.attributes("-alpha", 0.95)
+    popup.lower() # 창을 맨 뒤로 보내려고 시도
 
     screen_w = popup.winfo_screenwidth()
     screen_h = popup.winfo_screenheight()
@@ -132,16 +154,14 @@ def create_gui():
 
     bind_window_drag(popup)
 
-    # 텍스트 박스 위치 조정 (높이 변경에 따라)
-    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30) # 아래 공간 확보
-    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30) # 아래 공간 확보
+    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
+    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30)
 
     def update_text_areas(items):
         left_lines = []
         right_lines = []
         for key, line in items:
             if key in right_keys:
-                # 슬래시를 기준으로 분리하고 빈 문자열을 제거
                 parts = [part.strip() for part in line.split('/') if part.strip()]
                 right_lines.extend(parts)
             else:
@@ -164,36 +184,28 @@ def create_gui():
 
     update_text_areas(extract_summary_items(filepath, keyword_map))
 
-    # 요청사항 1: 체크박스, X 버튼, Details 버튼 오른쪽 정렬
     bottom_frame = tk.Frame(popup, bg=BG_COLOR)
-    # bottom_frame을 오른쪽 아래에 위치시키고 내부 요소를 오른쪽으로 정렬
     bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
-    # 체크박스, X 버튼, Details 버튼을 포함할 컨테이너 프레임
-    # 이 프레임 안의 요소들이 오른쪽에 배치되도록 pack(side="right") 사용
     control_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
-    control_frame.pack(side="right") # bottom_frame 안에서 오른쪽으로 정렬
+    control_frame.pack(side="right")
 
-    # Detail 버튼
     detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
-    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
-              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right") # ⚙ 버튼을 먼저 추가 (오른쪽에서부터 채워짐)
-    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right") # Label을 ⚙ 버튼 왼쪽에 추가
-    detail_frame.pack(side="right", padx=(0,10)) # 오른쪽으로 정렬, 오른쪽에 여백 추가
+    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view, # 함수 호출 그대로 유지
+              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right")
+    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right")
+    detail_frame.pack(side="right", padx=(0,10))
 
-    # X (종료) 버튼
     tk.Button(control_frame, text="X", command=lambda: sys.exit(),
               width=2, height=1, relief="flat",
               bg=BG_COLOR, activebackground=BG_COLOR,
-              borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10)) # 오른쪽으로 정렬, 오른쪽에 여백 추가
+              borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10))
 
-    # 자동 실행 체크박스
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
     tk.Checkbutton(control_frame, text="Auto-run on Startup",
                    variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
                    bg=BG_COLOR, activebackground=BG_COLOR,
-                   highlightthickness=0, relief="flat").pack(side="right") # 오른쪽으로 정렬
-
+                   highlightthickness=0, relief="flat").pack(side="right")
 
     refresh_summary()
     popup.mainloop()

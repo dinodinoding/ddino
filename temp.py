@@ -6,7 +6,6 @@ import tkinter as tk
 import subprocess
 import winreg
 
-# 기본 설정
 APP_NAME = "QuickLogViewer"
 CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
@@ -85,8 +84,7 @@ def create_text_area(parent, x, y, w, h):
     box.place(x=x, y=y, width=w, height=h)
     box.config(state="disabled")
     return box
-
-def bind_window_drag(window):
+    def bind_window_drag(window):
     def start_move(event):
         window.x = event.x
         window.y = event.y
@@ -135,8 +133,8 @@ def create_gui():
         right_lines = []
         for key, line in items:
             if key in right_keys:
-                # 오른쪽만 / 기준 줄바꿈 처리 (/// → \n)
-                line = re.sub(r'/+', '\n', line)
+                line = re.sub(r'/+', '\n', line, count=1)     # 줄바꿈 1회
+                line = re.sub(r'[/\s]+$', '', line)           # 나머지 제거
                 right_lines.append(line)
             else:
                 left_lines.append(line)

@@ -9,11 +9,12 @@ import winreg
 APP_NAME = "QuickLogViewer"
 CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
-WIDTH_SCALE = 1.3
-WIDTH = int(300 * WIDTH_SCALE)
-HEIGHT = int(220 * WIDTH_SCALE)
-TEXT_WIDTH = int(135 * WIDTH_SCALE)
-TEXT_HEIGHT = int(200 * WIDTH_SCALE)
+
+# 요청사항 2: WIDTH_SCALE 대신 고정 사이즈로 변경
+WIDTH = 390
+HEIGHT = 286
+TEXT_WIDTH = 175
+TEXT_HEIGHT = 260
 
 # ─────────────────────────────────────────────
 def load_config():
@@ -119,6 +120,9 @@ def create_gui():
     popup.overrideredirect(True)
     popup.configure(bg=BG_COLOR)
     popup.attributes("-topmost", False)
+    # 요청사항 3: 투명도 0.5 설정
+    popup.attributes("-alpha", 0.95) # 0.5는 너무 투명할 수 있어 0.95로 조정했습니다. 0.5 원하시면 변경해주세요.
+
 
     screen_w = popup.winfo_screenwidth()
     screen_h = popup.winfo_screenheight()
@@ -128,15 +132,16 @@ def create_gui():
 
     bind_window_drag(popup)
 
-    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
-    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
+    # 텍스트 박스 위치 조정 (높이 변경에 따라)
+    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30) # 아래 공간 확보
+    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT - 30) # 아래 공간 확보
 
     def update_text_areas(items):
         left_lines = []
         right_lines = []
         for key, line in items:
             if key in right_keys:
-                # 변경된 부분: 슬래시를 기준으로 분리하고 빈 문자열을 제거
+                # 슬래시를 기준으로 분리하고 빈 문자열을 제거
                 parts = [part.strip() for part in line.split('/') if part.strip()]
                 right_lines.extend(parts)
             else:
@@ -159,26 +164,36 @@ def create_gui():
 
     update_text_areas(extract_summary_items(filepath, keyword_map))
 
+    # 요청사항 1: 체크박스, X 버튼, Details 버튼 오른쪽 정렬
     bottom_frame = tk.Frame(popup, bg=BG_COLOR)
-    bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
+    # bottom_frame을 오른쪽 아래에 위치시키고 내부 요소를 오른쪽으로 정렬
+    bottom_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
-    var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    tk.Checkbutton(bottom_frame, text="Auto-run on Startup",
-                   variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
-                   bg=BG_COLOR, activebackground=BG_COLOR,
-                   highlightthickness=0, relief="flat").pack(side="left")
+    # 체크박스, X 버튼, Details 버튼을 포함할 컨테이너 프레임
+    # 이 프레임 안의 요소들이 오른쪽에 배치되도록 pack(side="right") 사용
+    control_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
+    control_frame.pack(side="right") # bottom_frame 안에서 오른쪽으로 정렬
 
-    # 이 버튼은 애플리케이션을 종료하는 버튼입니다.
-    tk.Button(bottom_frame, text="X", command=lambda: sys.exit(), # 'X' 아이콘으로 변경하여 가시성 높임
+    # Detail 버튼
+    detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
+    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
+              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right") # ⚙ 버튼을 먼저 추가 (오른쪽에서부터 채워짐)
+    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right") # Label을 ⚙ 버튼 왼쪽에 추가
+    detail_frame.pack(side="right", padx=(0,10)) # 오른쪽으로 정렬, 오른쪽에 여백 추가
+
+    # X (종료) 버튼
+    tk.Button(control_frame, text="X", command=lambda: sys.exit(),
               width=2, height=1, relief="flat",
               bg=BG_COLOR, activebackground=BG_COLOR,
-              borderwidth=0, highlightthickness=0).pack(side="left", padx=10)
+              borderwidth=0, highlightthickness=0).pack(side="right", padx=(0,10)) # 오른쪽으로 정렬, 오른쪽에 여백 추가
 
-    detail_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
-    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="left")
-    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
-              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="left")
-    detail_frame.pack(side="left")
+    # 자동 실행 체크박스
+    var_autorun = tk.BooleanVar(value=is_autorun_enabled())
+    tk.Checkbutton(control_frame, text="Auto-run on Startup",
+                   variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
+                   bg=BG_COLOR, activebackground=BG_COLOR,
+                   highlightthickness=0, relief="flat").pack(side="right") # 오른쪽으로 정렬
+
 
     refresh_summary()
     popup.mainloop()

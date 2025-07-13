@@ -1,26 +1,23 @@
 import tkinter as tk
-import subprocess
-import os
-import sys
-import json
-import winreg
+import os, sys, json, subprocess, re, winreg
 
-# 기본 경로 설정
-if getattr(sys, "frozen", False):
-    base_path = os.path.dirname(sys.executable)
-else:
-    base_path = os.path.dirname(__file__)
+APP_NAME = "QuickLogViewer"
+CONFIG_PATH = os.path.join("settings", "config.json")
+BG_COLOR = "#f0f0f0"
+WIDTH_SCALE = 1.3
+BASE_WIDTH = int(300 * WIDTH_SCALE)
+BASE_HEIGHT = int(270 * WIDTH_SCALE)
+TEXT_WIDTH = int(135 * WIDTH_SCALE)
+TEXT_HEIGHT = int(170 * WIDTH_SCALE)
 
-# config.json 로드
 def load_config():
-    config_path = os.path.join(base_path, "settings", "config.json")
-    if not os.path.exists(config_path):
+    base = getattr(sys, "frozen", False) and sys.executable or __file__
+    path = os.path.join(os.path.dirname(base), CONFIG_PATH)
+    if not os.path.exists(path):
         return {}
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# 윈도우 시작 자동실행 등록
-APP_NAME = "QuickLogViewer"
 def set_autorun(enable):
     reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     exe_path = sys.executable
@@ -42,17 +39,18 @@ def is_autorun_enabled():
     except FileNotFoundError:
         return False
 
-# 로그에서 요약 항목 추출
-def extract_summary_items(filepath):
-    config = load_config()
-    keyword_map = config.get("keyword_display_map", {})
+def extract_value_after_data(line):
+    parts = re.split(r'\s+data\s+', line.strip(), maxsplit=1)
+    if len(parts) == 2:
+        return parts[1].strip()
+    return None
 
+def extract_summary_items(filepath, keyword_map):
     if os.path.isdir(filepath):
         txts = [f for f in os.listdir(filepath) if f.endswith(".txt")]
-        if txts:
-            filepath = os.path.join(filepath, txts[0])
-        else:
+        if not txts:
             return []
+        filepath = os.path.join(filepath, txts[0])
 
     if not os.path.isfile(filepath):
         return []
@@ -63,25 +61,36 @@ def extract_summary_items(filepath):
     except PermissionError:
         return []
 
-    summary = []
+    result = []
     for line in lines:
         line_lower = line.strip().lower()
-        for keyword in keyword_map.keys():
-            if keyword in line_lower:
-                fmt = keyword_map[keyword]
-                try:
-                    idx = line_lower.find(keyword)
-                    value = line[idx + len(keyword):].strip()
-                    if value.lower().startswith("data"):
-                        value = value[4:].strip()
-                    display_line = fmt.replace("{value}", value)
-                    summary.append((keyword, display_line))
-                except Exception:
-                    pass
-                break
-    return summary
+        for keyword in keyword_map:
+            if keyword in line_lower and 'data' in line_lower:
+                value = extract_value_after_data(line)
+                if value:
+                    display = keyword_map[keyword].replace("{value}", value)
+                    result.append((keyword, display))
+                    break
+    return result
 
-# 상세 보기 파일 열기
+def create_text_area(parent, x, y, w, h):
+    box = tk.Text(parent, wrap="word", font=("Courier", 10),
+                  bg=BG_COLOR, relief="flat", highlightthickness=0)
+    box.place(x=x, y=y, width=w, height=h)
+    box.config(state="disabled")
+    return box
+
+def bind_window_drag(window):
+    def start_move(event):
+        window.x = event.x
+        window.y = event.y
+    def do_move(event):
+        dx = event.x - window.x
+        dy = event.y - window.y
+        window.geometry(f"+{window.winfo_x() + dx}+{window.winfo_y() + dy}")
+    window.bind("<ButtonPress-1>", start_move)
+    window.bind("<B1-Motion>", do_move)
+
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
@@ -89,117 +98,77 @@ def launch_detail_view():
     except Exception as e:
         tk.messagebox.showerror("Launch error", f"Failed to open: {e}")
 
-# GUI 생성
 def create_gui():
     config = load_config()
-    filepath = config.get("data_file", "")
-    filepath = os.path.abspath(os.path.join(base_path, filepath)) if not os.path.isabs(filepath) else filepath
-
-    left_keywords = config.get("left_keywords", [])
-    right_keywords = config.get("right_keywords", [])
+    filepath = os.path.abspath(config.get("data_file", ""))
+    left_keys = config.get("left_keywords", [])
+    right_keys = config.get("right_keywords", [])
+    keyword_map = config.get("keyword_display_map", {})
 
     root = tk.Tk()
     root.withdraw()
 
     popup = tk.Toplevel()
     popup.overrideredirect(True)
-    popup.attributes("-topmost", False)  # 항상 위에 있지 않게
-    bg_color = "#f0f0f0"
-    popup.configure(bg=bg_color)
+    popup.configure(bg=BG_COLOR)
+    popup.attributes("-topmost", False)
 
-    screen_width = popup.winfo_screenwidth()
-    screen_height = popup.winfo_screenheight()
-    width = 300
-    height = 270
-    x = screen_width - width - 20
-    y = (screen_height // 2) - (height // 2)
-    popup.geometry(f"{width}x{height}+{x}+{y}")
+    screen_w = popup.winfo_screenwidth()
+    screen_h = popup.winfo_screenheight()
+    x = screen_w - BASE_WIDTH - 20
+    y = (screen_h // 2) - (BASE_HEIGHT // 2)
+    popup.geometry(f"{BASE_WIDTH}x{BASE_HEIGHT}+{x}+{y}")
 
-    # 마우스로 창 이동
-    def start_move(event):
-        popup.x = event.x
-        popup.y = event.y
-    def do_move(event):
-        dx = event.x - popup.x
-        dy = event.y - popup.y
-        popup.geometry(f"+{popup.winfo_x() + dx}+{popup.winfo_y() + dy}")
-    popup.bind("<ButtonPress-1>", start_move)
-    popup.bind("<B1-Motion>", do_move)
+    bind_window_drag(popup)
 
-    # 텍스트 영역
-    left_text = tk.Text(popup, wrap="word", font=("Courier", 9), bg=bg_color, relief="flat", highlightthickness=0)
-    left_text.place(x=10, y=10, width=135, height=170)
-    left_text.config(state="disabled")
-
-    right_text = tk.Text(popup, wrap="word", font=("Courier", 9), bg=bg_color, relief="flat", highlightthickness=0)
-    right_text.place(x=155, y=10, width=135, height=170)
-    right_text.config(state="disabled")
-
-    bottom_text = tk.Text(popup, wrap="none", font=("Courier", 9), height=1, bg=bg_color, relief="flat", highlightthickness=0)
-    bottom_text.place(x=10, y=185, width=280, height=20)
+    left_text = create_text_area(popup, 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
+    right_text = create_text_area(popup, 10 + TEXT_WIDTH + 10, 10, TEXT_WIDTH, TEXT_HEIGHT)
+    bottom_text = create_text_area(popup, 10, 20 + TEXT_HEIGHT, BASE_WIDTH - 20, 25)
+    bottom_text.config(state="normal")
     bottom_text.insert("1.0", "▼ Loading...")
     bottom_text.config(state="disabled")
 
     def update_text_areas(items):
-        left_lines = []
-        right_lines = []
-        for keyword, line in items:
-            if keyword in left_keywords:
-                left_lines.append(line)
-            elif keyword in right_keywords:
-                right_lines.append(line)
-            else:
-                left_lines.append(line)
+        left_lines = [line for key, line in items if key in left_keys or key not in right_keys]
+        right_lines = [line for key, line in items if key in right_keys]
 
-        left_text.config(state="normal")
-        right_text.config(state="normal")
-        bottom_text.config(state="normal")
-
-        left_text.delete("1.0", tk.END)
-        right_text.delete("1.0", tk.END)
-        bottom_text.delete("1.0", tk.END)
+        for box in [left_text, right_text, bottom_text]:
+            box.config(state="normal")
+            box.delete("1.0", tk.END)
 
         left_text.insert("1.0", "\n".join(left_lines))
         right_text.insert("1.0", "\n".join(right_lines))
         bottom_text.insert("1.0", f"▲ Updated - Total: {len(items)} items")
 
-        left_text.config(state="disabled")
-        right_text.config(state="disabled")
-        bottom_text.config(state="disabled")
+        for box in [left_text, right_text, bottom_text]:
+            box.config(state="disabled")
 
     def refresh_summary():
-        items = extract_summary_items(filepath)
+        items = extract_summary_items(filepath, keyword_map)
         update_text_areas(items)
         popup.after(3600000, refresh_summary)
 
-    items = extract_summary_items(filepath)
-    update_text_areas(items)
+    update_text_areas(extract_summary_items(filepath, keyword_map))
 
-    # 하단 제어 영역
-    bottom_frame = tk.Frame(popup, bg=bg_color)
+    bottom_frame = tk.Frame(popup, bg=BG_COLOR)
     bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 
     var_autorun = tk.BooleanVar(value=is_autorun_enabled())
-    def on_autorun_toggle():
-        set_autorun(var_autorun.get())
-    check_autorun = tk.Checkbutton(
-        bottom_frame, text="Auto-run on Startup",
-        variable=var_autorun, command=on_autorun_toggle,
-        bg=bg_color, activebackground=bg_color, highlightthickness=0, relief="flat"
-    )
-    check_autorun.pack(side="left")
+    tk.Checkbutton(bottom_frame, text="Auto-run on Startup",
+                   variable=var_autorun, command=lambda: set_autorun(var_autorun.get()),
+                   bg=BG_COLOR, activebackground=BG_COLOR,
+                   highlightthickness=0, relief="flat").pack(side="left")
 
-    secret_close_btn = tk.Button(
-        bottom_frame, text="", command=lambda: sys.exit(),
-        relief="flat", borderwidth=0, highlightthickness=0,
-        width=2, height=1, bg=bg_color, activebackground=bg_color
-    )
-    secret_close_btn.pack(side="left", padx=10)
+    tk.Button(bottom_frame, text="", command=lambda: sys.exit(),
+              width=2, height=1, relief="flat",
+              bg=BG_COLOR, activebackground=BG_COLOR,
+              borderwidth=0, highlightthickness=0).pack(side="left", padx=10)
 
-    details_frame = tk.Frame(bottom_frame, bg=bg_color)
-    tk.Label(details_frame, text="Details", font=("Arial", 9), bg=bg_color).pack(side="left")
-    tk.Button(details_frame, text="⚙", font=("Arial", 10), command=launch_detail_view, bg=bg_color).pack(side="left")
-    details_frame.pack(side="left")
+    detail_frame = tk.Frame(bottom_frame, bg=BG_COLOR)
+    tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="left")
+    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
+              bg=BG_COLOR, activebackground=BG_COLOR).pack(side="left")
+    detail_frame.pack(side="left")
 
     refresh_summary()
     popup.mainloop()

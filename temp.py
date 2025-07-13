@@ -15,6 +15,7 @@ HEIGHT = int(220 * WIDTH_SCALE)
 TEXT_WIDTH = int(135 * WIDTH_SCALE)
 TEXT_HEIGHT = int(200 * WIDTH_SCALE)
 
+# ─────────────────────────────────────────────
 def load_config():
     base = getattr(sys, "frozen", False) and sys.executable or __file__
     path = os.path.join(os.path.dirname(base), CONFIG_PATH)
@@ -84,7 +85,8 @@ def create_text_area(parent, x, y, w, h):
     box.place(x=x, y=y, width=w, height=h)
     box.config(state="disabled")
     return box
-    def bind_window_drag(window):
+
+def bind_window_drag(window):
     def start_move(event):
         window.x = event.x
         window.y = event.y
@@ -102,6 +104,7 @@ def launch_detail_view():
     except Exception as e:
         tk.messagebox.showerror("Launch error", f"Failed to open: {e}")
 
+# ─────────────────────────────────────────────
 def create_gui():
     config = load_config()
     filepath = os.path.abspath(config.get("data_file", ""))
@@ -133,8 +136,8 @@ def create_gui():
         right_lines = []
         for key, line in items:
             if key in right_keys:
-                line = re.sub(r'/+', '\n', line, count=1)     # 줄바꿈 1회
-                line = re.sub(r'[/\s]+$', '', line)           # 나머지 제거
+                line = re.sub(r'/+', '\n', line, count=1)     # 1회 줄바꿈
+                line = re.sub(r'[\s/]+$', '', line)           # 나머지 /, 공백 제거
                 right_lines.append(line)
             else:
                 left_lines.append(line)

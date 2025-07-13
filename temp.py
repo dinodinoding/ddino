@@ -6,13 +6,13 @@ import sys
 import json
 import winreg
 
-# --- 기본 경로 설정 ---
+# === 기본 경로 설정 ===
 if getattr(sys, "frozen", False):
     base_path = os.path.dirname(sys.executable)
 else:
     base_path = os.path.dirname(__file__)
 
-# --- 설정 파일 로드 ---
+# === 설정 불러오기 ===
 def load_config():
     config_path = os.path.join(base_path, "settings", "config.json")
     if not os.path.exists(config_path):
@@ -20,7 +20,7 @@ def load_config():
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# --- 자동 실행 설정 ---
+# === 윈도우 자동 실행 설정 ===
 APP_NAME = "QuickLogViewer"
 def set_autorun(enable):
     reg_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
@@ -43,7 +43,7 @@ def is_autorun_enabled():
     except FileNotFoundError:
         return False
 
-# --- 로그 요약 추출 ---
+# === 로그 파싱 ===
 def extract_summary_items(filepath):
     config = load_config()
     keyword_map = config.get("keyword_display_map", {})
@@ -79,7 +79,7 @@ def extract_summary_items(filepath):
                 break
     return summary
 
-# --- 상세 보기 실행 ---
+# === 상세보기 실행 ===
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
@@ -87,7 +87,7 @@ def launch_detail_view():
     except Exception as e:
         messagebox.showerror("Launch error", f"Failed to open: {e}")
 
-# --- GUI 생성 ---
+# === GUI 생성 ===
 def create_gui():
     config = load_config()
     filepath = config.get("data_file", "")
@@ -121,12 +121,28 @@ def create_gui():
     popup.bind("<ButtonPress-1>", start_move)
     popup.bind("<B1-Motion>", do_move)
 
-    # 하나의 텍스트 박스 (좌우 데이터 + 상태 줄 통합)
-    text_area = tk.Text(popup, wrap="none", font=("Courier", 9))
-    text_area.place(x=10, y=10, width=280, height=210)
-    text_area.config(state="disabled")
+    # === 텍스트 박스 스타일 공통 적용 ===
+    text_style = {
+        "wrap": "none",
+        "font": ("Courier", 9),
+        "borderwidth": 0,
+        "highlightthickness": 0,
+        "background": "#f0f0f0"
+    }
 
-    def update_text_area(summary_items):
+    left_text = tk.Text(popup, **text_style)
+    left_text.place(x=10, y=10, width=135, height=190)
+    left_text.config(state="disabled")
+
+    right_text = tk.Text(popup, **text_style)
+    right_text.place(x=155, y=10, width=135, height=190)
+    right_text.config(state="disabled")
+
+    # 하단 상태 표시줄 (Label)
+    status_label = tk.Label(popup, text="▲ Ready", anchor="w", font=("Courier", 9), bg=popup["bg"])
+    status_label.place(x=10, y=205, width=280, height=20)
+
+    def update_text_areas(summary_items):
         left_lines = []
         right_lines = []
 
@@ -140,27 +156,28 @@ def create_gui():
         left_lines += [""] * (max_len - len(left_lines))
         right_lines += [""] * (max_len - len(right_lines))
 
-        merged_lines = []
-        for l, r in zip(left_lines, right_lines):
-            merged_lines.append(f"{l:<25}  {r}")
+        left_text.config(state="normal")
+        right_text.config(state="normal")
+        left_text.delete("1.0", tk.END)
+        right_text.delete("1.0", tk.END)
 
-        merged_lines.append(f"\n▲ Updated - Total: {len(summary_items)} items")
+        left_text.insert("1.0", "\n".join(left_lines))
+        right_text.insert("1.0", "\n".join(right_lines))
 
-        text_area.config(state="normal")
-        text_area.delete("1.0", tk.END)
-        text_area.insert("1.0", "\n".join(merged_lines))
-        text_area.config(state="disabled")
+        left_text.config(state="disabled")
+        right_text.config(state="disabled")
+        status_label.config(text=f"▲ Updated - Total: {len(summary_items)} items")
 
     def refresh_summary():
         items = extract_summary_items(filepath)
-        update_text_area(items)
+        update_text_areas(items)
         popup.after(3600000, refresh_summary)
 
     # 초기 표시
     items = extract_summary_items(filepath)
-    update_text_area(items)
+    update_text_areas(items)
 
-    # 하단 제어 패널
+    # === 하단 제어 패널 ===
     bottom_frame = tk.Frame(popup, bg=popup["bg"])
     bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 

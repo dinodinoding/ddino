@@ -6,13 +6,13 @@ import sys
 import json
 import winreg
 
-# --- 실행 파일 여부 확인 ---
+# --- 기본 경로 설정 ---
 if getattr(sys, "frozen", False):
     base_path = os.path.dirname(sys.executable)
 else:
     base_path = os.path.dirname(__file__)
 
-# --- config 로드 ---
+# --- 설정 파일 로드 ---
 def load_config():
     config_path = os.path.join(base_path, "settings", "config.json")
     if not os.path.exists(config_path):
@@ -20,10 +20,10 @@ def load_config():
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# --- 윈도우 자동 실행 설정 ---
+# --- 자동 실행 설정 ---
 APP_NAME = "QuickLogViewer"
 def set_autorun(enable):
-    reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    reg_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
     exe_path = sys.executable
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_ALL_ACCESS) as key:
         if enable:
@@ -35,7 +35,7 @@ def set_autorun(enable):
                 pass
 
 def is_autorun_enabled():
-    reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    reg_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
             value, _ = winreg.QueryValueEx(key, APP_NAME)
@@ -121,19 +121,15 @@ def create_gui():
     popup.bind("<ButtonPress-1>", start_move)
     popup.bind("<B1-Motion>", do_move)
 
-    # 하나의 텍스트 위젯에 좌우 데이터 포맷팅해서 넣기
+    # 하나의 텍스트 박스 (좌우 데이터 + 상태 줄 통합)
     text_area = tk.Text(popup, wrap="none", font=("Courier", 9))
-    text_area.place(x=10, y=10, width=280, height=170)
+    text_area.place(x=10, y=10, width=280, height=210)
     text_area.config(state="disabled")
-
-    bottom_text = tk.Text(popup, wrap="none", font=("Courier", 9), height=1)
-    bottom_text.place(x=10, y=185, width=280, height=20)
-    bottom_text.insert("1.0", "▼ Loading...")
-    bottom_text.config(state="disabled")
 
     def update_text_area(summary_items):
         left_lines = []
         right_lines = []
+
         for keyword, line in summary_items:
             if keyword in left_keywords:
                 left_lines.append(line)
@@ -148,15 +144,12 @@ def create_gui():
         for l, r in zip(left_lines, right_lines):
             merged_lines.append(f"{l:<25}  {r}")
 
+        merged_lines.append(f"\n▲ Updated - Total: {len(summary_items)} items")
+
         text_area.config(state="normal")
         text_area.delete("1.0", tk.END)
         text_area.insert("1.0", "\n".join(merged_lines))
         text_area.config(state="disabled")
-
-        bottom_text.config(state="normal")
-        bottom_text.delete("1.0", tk.END)
-        bottom_text.insert("1.0", f"▲ Updated - Total: {len(summary_items)} items")
-        bottom_text.config(state="disabled")
 
     def refresh_summary():
         items = extract_summary_items(filepath)
@@ -167,7 +160,7 @@ def create_gui():
     items = extract_summary_items(filepath)
     update_text_area(items)
 
-    # 하단 제어 영역
+    # 하단 제어 패널
     bottom_frame = tk.Frame(popup, bg=popup["bg"])
     bottom_frame.place(relx=0, rely=1.0, anchor="sw", x=10, y=-10)
 

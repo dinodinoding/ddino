@@ -136,9 +136,9 @@ def create_gui():
         right_lines = []
         for key, line in items:
             if key in right_keys:
-                line = re.sub(r'/+', '\n', line, count=1)     # 1회 줄바꿈
-                line = re.sub(r'[\s/]+$', '', line)           # 나머지 /, 공백 제거
-                right_lines.append(line)
+                # 변경된 부분: 슬래시를 기준으로 분리하고 빈 문자열을 제거
+                parts = [part.strip() for part in line.split('/') if part.strip()]
+                right_lines.extend(parts)
             else:
                 left_lines.append(line)
 
@@ -168,7 +168,8 @@ def create_gui():
                    bg=BG_COLOR, activebackground=BG_COLOR,
                    highlightthickness=0, relief="flat").pack(side="left")
 
-    tk.Button(bottom_frame, text="", command=lambda: sys.exit(),
+    # 이 버튼은 애플리케이션을 종료하는 버튼입니다.
+    tk.Button(bottom_frame, text="X", command=lambda: sys.exit(), # 'X' 아이콘으로 변경하여 가시성 높임
               width=2, height=1, relief="flat",
               bg=BG_COLOR, activebackground=BG_COLOR,
               borderwidth=0, highlightthickness=0).pack(side="left", padx=10)
@@ -183,4 +184,4 @@ def create_gui():
     popup.mainloop()
 
 if __name__ == "__main__":
-    create_gui() 
+    create_gui()

@@ -6,13 +6,13 @@ import sys
 import json
 import winreg
 
-# --- 기본 경로 설정 ---
+# --- 실행 파일 여부 확인 ---
 if getattr(sys, "frozen", False):
     base_path = os.path.dirname(sys.executable)
 else:
     base_path = os.path.dirname(__file__)
 
-# --- config.json 불러오기 ---
+# --- config 로드 ---
 def load_config():
     config_path = os.path.join(base_path, "settings", "config.json")
     if not os.path.exists(config_path):
@@ -43,7 +43,7 @@ def is_autorun_enabled():
     except FileNotFoundError:
         return False
 
-# --- 로그 요약 추출 (키워드와 포맷 모두 config.json에서 로드) ---
+# --- 로그 요약 추출 ---
 def extract_summary_items(filepath):
     config = load_config()
     keyword_map = config.get("keyword_display_map", {})
@@ -67,19 +67,19 @@ def extract_summary_items(filepath):
     summary = []
     for line in lines:
         clean_line = line.strip().lower()
-        for keyword in keyword_map.keys():
+        for keyword in keyword_map:
             if keyword in clean_line:
                 fmt = keyword_map[keyword]
                 try:
                     value = clean_line.split()[-1]
-                    display_line = fmt.replace("{value}", value)
-                    summary.append((keyword, display_line))
+                    display = fmt.replace("{value}", value)
+                    summary.append((keyword, display))
                 except Exception:
                     pass
                 break
     return summary
 
-# --- 상세 파일 열기 ---
+# --- 상세 보기 실행 ---
 def launch_detail_view():
     target = os.path.join("C:\\monitoring", "listlist.txt")
     try:
@@ -121,55 +121,51 @@ def create_gui():
     popup.bind("<ButtonPress-1>", start_move)
     popup.bind("<B1-Motion>", do_move)
 
-    # 텍스트 영역: 왼쪽, 오른쪽, 아래
-    left_text = tk.Text(popup, wrap="word", font=("Courier", 9))
-    left_text.place(x=10, y=10, width=135, height=170)
-    left_text.config(state="disabled")
-
-    right_text = tk.Text(popup, wrap="word", font=("Courier", 9))
-    right_text.place(x=155, y=10, width=135, height=170)
-    right_text.config(state="disabled")
+    # 하나의 텍스트 위젯에 좌우 데이터 포맷팅해서 넣기
+    text_area = tk.Text(popup, wrap="none", font=("Courier", 9))
+    text_area.place(x=10, y=10, width=280, height=170)
+    text_area.config(state="disabled")
 
     bottom_text = tk.Text(popup, wrap="none", font=("Courier", 9), height=1)
     bottom_text.place(x=10, y=185, width=280, height=20)
     bottom_text.insert("1.0", "▼ Loading...")
     bottom_text.config(state="disabled")
 
-    def update_text_areas(items):
+    def update_text_area(summary_items):
         left_lines = []
         right_lines = []
-        for keyword, line in items:
+        for keyword, line in summary_items:
             if keyword in left_keywords:
                 left_lines.append(line)
             elif keyword in right_keywords:
                 right_lines.append(line)
-            else:
-                left_lines.append(line)
 
-        left_text.config(state="normal")
-        right_text.config(state="normal")
+        max_len = max(len(left_lines), len(right_lines))
+        left_lines += [""] * (max_len - len(left_lines))
+        right_lines += [""] * (max_len - len(right_lines))
+
+        merged_lines = []
+        for l, r in zip(left_lines, right_lines):
+            merged_lines.append(f"{l:<25}  {r}")
+
+        text_area.config(state="normal")
+        text_area.delete("1.0", tk.END)
+        text_area.insert("1.0", "\n".join(merged_lines))
+        text_area.config(state="disabled")
+
         bottom_text.config(state="normal")
-
-        left_text.delete("1.0", tk.END)
-        right_text.delete("1.0", tk.END)
         bottom_text.delete("1.0", tk.END)
-
-        left_text.insert("1.0", "\n".join(left_lines))
-        right_text.insert("1.0", "\n".join(right_lines))
-        bottom_text.insert("1.0", f"▲ Updated - Total: {len(items)} items")
-
-        left_text.config(state="disabled")
-        right_text.config(state="disabled")
+        bottom_text.insert("1.0", f"▲ Updated - Total: {len(summary_items)} items")
         bottom_text.config(state="disabled")
 
     def refresh_summary():
         items = extract_summary_items(filepath)
-        update_text_areas(items)
+        update_text_area(items)
         popup.after(3600000, refresh_summary)
 
     # 초기 표시
     items = extract_summary_items(filepath)
-    update_text_areas(items)
+    update_text_area(items)
 
     # 하단 제어 영역
     bottom_frame = tk.Frame(popup, bg=popup["bg"])

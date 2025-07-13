@@ -1,12 +1,17 @@
+import os
+import sys
+import json
+import re
 import tkinter as tk
-import os, sys, json, subprocess, re, winreg
+import subprocess
+import winreg
 
 APP_NAME = "QuickLogViewer"
 CONFIG_PATH = os.path.join("settings", "config.json")
 BG_COLOR = "#f0f0f0"
 WIDTH_SCALE = 1.3
-BASE_WIDTH = int(300 * WIDTH_SCALE)
-BASE_HEIGHT = int(240 * WIDTH_SCALE)
+WIDTH = int(300 * WIDTH_SCALE)
+HEIGHT = int(220 * WIDTH_SCALE)
 TEXT_WIDTH = int(135 * WIDTH_SCALE)
 TEXT_HEIGHT = int(200 * WIDTH_SCALE)
 
@@ -42,7 +47,7 @@ def is_autorun_enabled():
 def extract_value_after_data(line):
     parts = re.split(r'\s+data\s+', line.strip(), maxsplit=1)
     if len(parts) == 2:
-        return parts[1].strip()
+        return re.sub(r'/+', '\n', parts[1].strip())
     return None
 
 def extract_summary_items(filepath, keyword_map):
@@ -115,9 +120,9 @@ def create_gui():
 
     screen_w = popup.winfo_screenwidth()
     screen_h = popup.winfo_screenheight()
-    x = screen_w - BASE_WIDTH - 20
-    y = (screen_h // 2) - (BASE_HEIGHT // 2)
-    popup.geometry(f"{BASE_WIDTH}x{BASE_HEIGHT}+{x}+{y}")
+    x = screen_w - WIDTH - 20
+    y = (screen_h // 2) - (HEIGHT // 2)
+    popup.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
 
     bind_window_drag(popup)
 

@@ -66,12 +66,15 @@ def extract_summary_items(filepath):
 
     summary = []
     for line in lines:
-        clean_line = line.strip().lower()
+        line_lower = line.strip().lower()
         for keyword in keyword_map.keys():
-            if keyword in clean_line:
+            if keyword in line_lower:
                 fmt = keyword_map[keyword]
                 try:
-                    value = clean_line.split()[-1]
+                    idx = line_lower.find(keyword)
+                    value = line[idx + len(keyword):].strip()
+                    if value.lower().startswith("data"):
+                        value = value[4:].strip()
                     display_line = fmt.replace("{value}", value)
                     summary.append((keyword, display_line))
                 except Exception:
@@ -104,7 +107,7 @@ def create_gui():
     popup.attributes("-topmost", True)
     popup.attributes("-alpha", 0.5)
 
-    # 배경색 지정
+    # 배경색 통일
     bg_color = "#f0f0f0"
     popup.configure(bg=bg_color)
 

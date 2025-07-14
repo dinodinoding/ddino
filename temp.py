@@ -1,109 +1,116 @@
-import json
 import os
-import time
+import json
 import subprocess
-from datetime import datetime, timedelta
-from PySide2.QtWidgets import QApplication, QMessageBox
+from PySide2.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
+    QSpinBox, QHBoxLayout, QMessageBox
+)
+from PySide2.QtCore import Qt
 import sys
 
-# === [1] 현재 파일 기준 베이스 경로 설정 ===
+# === [1] 현재 gui.py 파일 위치 기준 경로 고정 ===
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 def get_path(filename):
     return os.path.join(BASE_PATH, filename)
 
-# === [2] JSON 로더 ===
+# === [2] JSON 로드 및 저장 ===
 def load_json(filename):
     path = get_path(filename)
     if not os.path.exists(path):
-        print(f">> [ERROR] 파일 없음: {path}")
         return {}
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-# === [3] 알람창 띄우기 ===
-def show_alert(message):
-    msg = QMessageBox()
-    msg.setWindowTitle("Heating 감지")
-    msg.setText(message)
-    msg.setIcon(QMessageBox.Warning)
-    msg.exec_()
+def save_json(filename, data):
+    path = get_path(filename)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
 
-# === [4] 메인 함수 ===
-def main():
-    app = QApplication(sys.argv)
+# === [3] GUI 메인 클래스 ===
+class HeatingMonitorGUI(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Heating 모니터링 설정")
+        self.setGeometry(300, 300, 400, 200)
 
-    # 설정 파일 불러오기
-    settings = load_json("settings.json")
-    config = load_json("config.json")
+        self.settings = load_json("settings.json")
+        self.worker_process = None
 
-    interval = timedelta(minutes=settings["interval_minutes"])
-    threshold = settings["threshold"]
+        self.init_ui()
 
-    # 모든 경로를 BASE_PATH 기준으로 고정
-    raw_log = get_path(config["raw_log_path"])
-    bat_file = get_path(config["bat_file_path"])
-    converted_log = get_path(config["converted_log_path"])
+    def init_ui(self):
+        layout = QVBoxLayout()
 
-    heating_times = []
-    last_modified_time = 0
+        # 감시 시간 설정
+        time_layout = QHBoxLayout()
+        time_layout.addWidget(QLabel("감시 시간 (분):"))
+        self.interval_spin = QSpinBox()
+        self.interval_spin.setRange(1, 360)
+        self.interval_spin.setValue(self.settings.get("interval_minutes", 60))
+        time_layout.addWidget(self.interval_spin)
+        layout.addLayout(time_layout)
 
-    # PID 기록 (옵션)
-    with open(get_path("worker.pid"), "w") as f:
-        f.write(str(os.getpid()))
+        # 허용 횟수 설정
+        count_layout = QHBoxLayout()
+        count_layout.addWidget(QLabel("허용 횟수:"))
+        self.threshold_spin = QSpinBox()
+        self.threshold_spin.setRange(1, 10)
+        self.threshold_spin.setValue(self.settings.get("threshold", 3))
+        count_layout.addWidget(self.threshold_spin)
+        layout.addLayout(count_layout)
 
-    print(">> heating_worker 시작됨")
+        # ON/OFF 버튼
+        self.on_button = QPushButton("모니터링 시작")
+        self.on_button.clicked.connect(self.start_monitoring)
+        layout.addWidget(self.on_button)
 
-    # === [5] 감시 루프 시작 ===
-    while True:
+        self.off_button = QPushButton("모니터링 중지")
+        self.off_button.clicked.connect(self.stop_monitoring)
+        layout.addWidget(self.off_button)
+
+        self.setLayout(layout)
+
+    def update_settings(self):
+        new_settings = {
+            "interval_minutes": self.interval_spin.value(),
+            "threshold": self.threshold_spin.value()
+        }
+        save_json("settings.json", new_settings)
+
+    def start_monitoring(self):
+        self.update_settings()
+        worker_exe = get_path("heating_worker.exe")
+
+        if not os.path.exists(worker_exe):
+            QMessageBox.critical(self, "오류", f"heating_worker.exe를 찾을 수 없습니다:\n{worker_exe}")
+            return
+
         try:
-            current_modified_time = os.path.getmtime(raw_log)
-        except FileNotFoundError:
-            print(">> [INFO] 로그 파일 없음. 재시도 대기중...")
-            time.sleep(5)
-            continue
+            self.worker_process = subprocess.Popen(worker_exe, shell=False)
+            QMessageBox.information(self, "시작됨", "Heating 모니터링이 시작되었습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "실행 실패", str(e))
 
-        if current_modified_time != last_modified_time:
-            print(">> 로그 파일 변경 감지 → 변환 시작")
-            last_modified_time = current_modified_time
+    def stop_monitoring(self):
+        pid_path = get_path("worker.pid")
 
-            # BAT 실행
-            try:
-                subprocess.run(bat_file, shell=True, check=True)
-            except subprocess.CalledProcessError as e:
-                print(f">> [ERROR] bat 실행 실패: {e}")
-                continue
+        if not os.path.exists(pid_path):
+            QMessageBox.warning(self, "PID 없음", "작동 중인 heating_worker를 찾을 수 없습니다.")
+            return
 
-            # 변환된 로그 읽기
-            try:
-                with open(converted_log, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-            except Exception as e:
-                print(f">> [ERROR] 변환 로그 읽기 실패: {e}")
-                continue
+        try:
+            with open(pid_path, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 9)  # 강제 종료
+            os.remove(pid_path)
+            QMessageBox.information(self, "종료됨", "Heating 모니터링이 중지되었습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "종료 실패", str(e))
 
-            now = datetime.now()
-
-            # heating 로그 시간 추출
-            for line in lines:
-                if 'heating' in line.lower():
-                    try:
-                        timestamp = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
-                        heating_times.append(timestamp)
-                    except:
-                        continue
-
-            # 지정된 시간 안에 발생한 heating만 유지
-            heating_times = [t for t in heating_times if now - t <= interval]
-
-            print(f">> 감지된 heating 수: {len(heating_times)} (임계값: {threshold})")
-
-            if len(heating_times) >= threshold:
-                show_alert(f"{settings['interval_minutes']}분 안에 heating {threshold}회 감지됨")
-                heating_times.clear()
-
-        time.sleep(10)
-
-# === [6] 프로그램 시작 ===
+# === [4] GUI 실행 ===
 if __name__ == "__main__":
-    main()
+    app = QApplication(sys.argv)
+    gui = HeatingMonitorGUI()
+    gui.show()
+    sys.exit(app.exec_())

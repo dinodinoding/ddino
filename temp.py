@@ -1,10 +1,12 @@
-# registry_tab.py (RegistryTabGroup, RegistryTab, RegistryEntry, CompareTab, RegistryStatusButton)
+# registry_tab.py
 
 from PySide2.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QMessageBox, QFrame,
-    QScrollArea, QTabWidget, QGridLayout, QGraphicsDropShadowEffect
+    QScrollArea, QTabWidget, QGridLayout, QGraphicsDropShadowEffect, QApplication, QProgressBar, QCheckBox,
+    QMainWindow, QTextEdit # QTextEdit 임포트 추가
 )
 from PySide2.QtGui import QFont
+from PySide2.QtCore import Qt, QTimer # QTimer 임포트 추가
 import winreg
 import json
 import os
@@ -12,7 +14,6 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from collections import OrderedDict
-from PySide2.QtCore import Qt, QTimer # QTimer 임포트 추가
 
 # --- 경로 설정 (현재 파일 기준) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -159,17 +160,20 @@ class CompareTab(QWidget):
         button_layout.addStretch()
         layout.addLayout(button_layout)
 
-        refresh.clicked.connect(self.refresh)
-
         self.grid = QGridLayout()
         layout.addLayout(self.grid)
         self.buttons = []
         self.refresh()
 
+        refresh.clicked.connect(self.refresh) # 여기에 시그널 연결
+
     def refresh(self):
-        for btn in self.buttons:
-            self.grid.removeWidget(btn)
-            btn.deleteLater()
+        # 기존 버튼 제거 (메모리 누수 방지)
+        for i in reversed(range(self.grid.count())):
+            widget_to_remove = self.grid.itemAt(i).widget()
+            if widget_to_remove:
+                widget_to_remove.setParent(None)
+                widget_to_remove.deleteLater()
         self.buttons = []
 
         all_entries = self.get_all_entries()
@@ -250,7 +254,7 @@ class RegistryTabGroup(QWidget):
 
     def load_settings(self):
         if not os.path.exists(SETTINGS_FILE):
-            print("[⚠️ 설정 파일 없음 - 기본값 사용]")
+            print("[설정 파일 없음 - 기본값 사용]")
             return
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -259,10 +263,10 @@ class RegistryTabGroup(QWidget):
                 entry.set_data(data)
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "설정 파일 오류", f"설정 파일을 읽는 중 오류가 발생했습니다: {e}\n파일을 삭제하고 다시 시도하세요.")
-            print(f"[❌ 설정 파일 로드 오류] {e}")
+            print(f"[설정 파일 로드 오류] {e}")
         except Exception as e:
             QMessageBox.critical(self, "설정 파일 오류", f"설정 파일을 로드하는 중 알 수 없는 오류가 발생했습니다: {e}")
-            print(f"[❌ 설정 파일 로드 알 수 없는 오류] {e}")
+            print(f"[설정 파일 로드 알 수 없는 오류] {e}")
 
 
 # --- ErrorLogTab 클래스 ---
@@ -270,7 +274,7 @@ class ErrorLogTab(QWidget):
     def __init__(self):
         super().__init__()
 
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self) # 전체 탭의 메인 레이아웃
 
         # 설명 라벨
         self.description_label = QLabel(
@@ -279,11 +283,11 @@ class ErrorLogTab(QWidget):
             "'config.json' 파일에 정의된 그룹별 로그를 선택하여 변환할 수 있습니다."
         )
         self.description_label.setWordWrap(True)
-        layout.addWidget(self.description_label)
+        main_layout.addWidget(self.description_label)
 
         # 상단 레이아웃 (진행률 + 버튼)
         filter_layout = QHBoxLayout()
-        layout.addLayout(filter_layout)
+        main_layout.addLayout(filter_layout)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(True)
@@ -306,35 +310,34 @@ class ErrorLogTab(QWidget):
         selection_layout.addSpacing(20)
         selection_layout.addWidget(self.warning_checkbox)
         selection_layout.addStretch(1)
-        layout.addLayout(selection_layout)
+        main_layout.addLayout(selection_layout)
 
-        # 로그 그룹 선택 체크박스 + 드롭다운 섹션 (가로 정렬)
-        layout.addWidget(QLabel("변환할 로그 그룹 선택 (개별 로그 선택 가능):"))
-
-        self.group_selection_layout = QVBoxLayout() # 그룹별 QHBoxLayout을 담을 QVBoxLayout
-        self.group_checkboxes = {}
-        self.group_comboboxes = {} # 새 딕셔너리 추가: {그룹명: QComboBox}
+        # 로그 그룹 선택 체크박스 + 드롭다운 섹션 (가로 정렬을 위한 QScrollArea + QHBoxLayout)
+        main_layout.addWidget(QLabel("변환할 로그 그룹 선택 (개별 로그 선택 가능):"))
 
         self.group_scroll_area = QScrollArea()
         self.group_scroll_area.setWidgetResizable(True)
-        self.group_scroll_area_content = QWidget()
-        self.group_scroll_area_content_layout = QVBoxLayout(self.group_scroll_area_content)
-        self.group_scroll_area_content_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft) # 정렬 설정
-        self.group_scroll_area.setWidget(self.group_scroll_area_content)
-        layout.addWidget(self.group_scroll_area, stretch=0) # stretch=0으로 고정 높이 또는 최소 높이 유지
+        # 가로 스크롤만 활성화 (수직 스크롤 비활성화)
+        self.group_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.group_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # 스크롤 영역 안에 그룹별 레이아웃을 직접 추가할 것이므로 기존 group_checkbox_layout은 제거
-        # self.group_checkbox_layout = QHBoxLayout() # QHBoxLayout 직접 생성
-        # self.group_checkbox_layout.setAlignment(Qt.AlignLeft)
-        # self.group_checkbox_layout.addStretch(1)
-        # layout.addLayout(self.group_checkbox_layout) # 레이아웃을 메인 레이아웃에 직접 추가
+        # 모든 그룹 항목을 가로로 배치할 컨테이너 위젯과 레이아웃
+        self.group_horizontal_container_widget = QWidget()
+        self.group_horizontal_container_layout = QHBoxLayout(self.group_horizontal_container_widget)
+        self.group_horizontal_container_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter) # 가로 정렬, 세로 중앙
 
+        # 컨테이너 위젯을 스크롤 영역에 설정
+        self.group_scroll_area.setWidget(self.group_horizontal_container_widget)
+        main_layout.addWidget(self.group_scroll_area) # 메인 레이아웃에 스크롤 영역 추가
 
-        layout.addWidget(QLabel("오류/경고 로그 보기:"))
+        self.group_checkboxes = {}
+        self.group_comboboxes = {} # {그룹명: QComboBox} 딕셔너리
+
+        main_layout.addWidget(QLabel("오류/경고 로그 보기:"))
         self.error_view = QTextEdit()
         self.error_view.setReadOnly(True)
         self.error_view.setFont(QFont("Courier New"))
-        layout.addWidget(self.error_view, 1)
+        main_layout.addWidget(self.error_view, 1) # QTextEdit이 남은 공간을 차지하도록 stretch 설정
 
         # --- 설정 파일 로드 및 경로 초기화 ---
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -343,9 +346,10 @@ class ErrorLogTab(QWidget):
         self.config = self._load_config()
         if not self.config:
             self.reload_button.setEnabled(False)
-            # 모든 위젯을 비활성화하는 대신, 특정 위젯만 비활성화 (설명 라벨 제외)
+            # 설정 파일 로드 실패 시 관련 위젯 비활성화
             for widget in self.findChildren(QWidget):
-                if widget not in [self, layout, self.description_label]: # 기본 레이아웃과 자신, 설명 라벨 제외
+                # QWidget의 레이아웃, 자기 자신, 설명 라벨 제외하고 비활성화
+                if isinstance(widget, QWidget) and widget not in [self, main_layout, self.description_label, self.error_view]:
                     widget.setEnabled(False)
             return
 
@@ -365,10 +369,9 @@ class ErrorLogTab(QWidget):
         # 체크박스 시그널 연결
         self.all_checkbox.toggled.connect(self._handle_all_checkbox_toggled)
         self.selected_checkbox.toggled.connect(self._handle_selected_checkbox_toggled)
-
         self.warning_checkbox.toggled.connect(self._display_filtered_logs)
 
-        # 시작 시 그룹 정보 로드 및 체크박스 생성
+        # 시작 시 그룹 정보 로드 및 체크박스/드롭다운 생성
         self.log_groups = self._parse_all_group_files()
         self._create_group_checkboxes()
 
@@ -418,7 +421,7 @@ class ErrorLogTab(QWidget):
         """
         config.json에 정의된 모든 그룹 파일들을 파싱하여
         그룹명과 해당 그룹에 속하는 로그 파일 경로 목록을 로드합니다.
-        반환 형식: OrderedDict[str, List[str]]
+        반환 형식: OrderedDict[str, list[str]]
         """
         all_parsed_groups = OrderedDict()
         for group_name, file_path in self.conversion_group_files.items():
@@ -453,21 +456,24 @@ class ErrorLogTab(QWidget):
     def _create_group_checkboxes(self):
         """
         로드된 그룹 정보를 기반으로 UI에 그룹 선택 체크박스와 드롭다운을 동적으로 생성합니다.
+        모든 그룹 항목이 가로로 배치되고, 가로 스크롤 가능하도록 설정됩니다.
         """
-        # 기존 위젯 제거
-        while self.group_scroll_area_content_layout.count():
-            item = self.group_scroll_area_content_layout.takeAt(0)
+        # 기존 위젯 제거 (QHBoxLayout에 추가된 위젯들을 모두 제거)
+        while self.group_horizontal_container_layout.count():
+            item = self.group_horizontal_container_layout.takeAt(0)
             if item.widget():
+                item.widget().setParent(None) # 부모 설정 해제
                 item.widget().deleteLater()
             elif item.layout():
-                # QLayout.deleteLater() is not available, so manually clear
-                self._clear_layout(item.layout())
+                self._clear_layout(item.layout()) # 중첩 레이아웃 처리
+
         self.group_checkboxes = {}
         self.group_comboboxes = {}
 
         for group_name, log_files in self.log_groups.items():
-            group_h_layout = QHBoxLayout()
-            group_h_layout.setAlignment(Qt.AlignLeft)
+            # 각 그룹 (체크박스 + 콤보박스)을 위한 개별 QVBoxLayout
+            group_v_layout = QVBoxLayout()
+            group_v_layout.setAlignment(Qt.AlignTop) # 세로 정렬 상단
 
             chk_box = QCheckBox(group_name)
             chk_box.toggled.connect(lambda checked, name=group_name: self._handle_group_checkbox_toggled(name, checked))
@@ -475,7 +481,7 @@ class ErrorLogTab(QWidget):
 
             combo_box = QComboBox()
             # 파일 경로의 베이스네임만 보이도록 아이템 추가
-            combo_box.addItem("--- 그룹 내 모든 로그 ---")
+            combo_box.addItem("--- 그룹 내 모든 로그 ---") # 첫 번째 항목: 그룹 내 모든 로그
             for file_path in log_files:
                 combo_box.addItem(os.path.basename(file_path))
             combo_box.setEnabled(False) # 기본적으로 비활성화
@@ -484,11 +490,13 @@ class ErrorLogTab(QWidget):
             # 체크박스 상태에 따라 콤보박스 활성화/비활성화
             chk_box.toggled.connect(combo_box.setEnabled)
 
-            group_h_layout.addWidget(chk_box)
-            group_h_layout.addWidget(combo_box)
-            group_h_layout.addStretch(1) # 우측 정렬을 위해 stretch 추가
+            group_v_layout.addWidget(chk_box)
+            group_v_layout.addWidget(combo_box)
 
-            self.group_scroll_area_content_layout.addLayout(group_h_layout)
+            # 각 그룹의 QVBoxLayout을 가로 컨테이너 레이아웃에 추가
+            self.group_horizontal_container_layout.addLayout(group_v_layout)
+
+        self.group_horizontal_container_layout.addStretch(1) # 마지막에 stretch를 넣어 왼쪽 정렬
 
         # 초기 상태에서 모든 체크박스와 콤보박스 비활성화 (All/Selected에 따라 제어)
         for chk_box in self.group_checkboxes.values():
@@ -502,6 +510,7 @@ class ErrorLogTab(QWidget):
             while layout.count():
                 item = layout.takeAt(0)
                 if item.widget() is not None:
+                    item.widget().setParent(None)
                     item.widget().deleteLater()
                 elif item.layout() is not None:
                     self._clear_layout(item.layout())
@@ -596,7 +605,6 @@ class ErrorLogTab(QWidget):
                     log_files_to_convert.extend(self.log_groups.get(group_name, []))
                 else:
                     # 특정 로그 파일이 선택된 경우 해당 로그만 추가
-                    # 원본 파일 경로를 찾아야 함 (현재는 베이스네임만 드롭다운에 표시)
                     # self.log_groups[group_name]에서 베이스네임과 일치하는 전체 경로 찾기
                     found_path = next((full_path for full_path in self.log_groups.get(group_name, [])
                                        if os.path.basename(full_path) == selected_log_display_name), None)
@@ -638,7 +646,7 @@ class ErrorLogTab(QWidget):
             out_path = os.path.join(self.output_dir, base_name)
 
             try:
-                # PySide2에서는 CREATE_NO_WINDOW 대신 win32con 사용 또는 None
+                # PySide2에서는 CREATE_NO_WINDOW 대신 win32con 사용 또는 STARTUPINFO
                 startupinfo = None
                 if sys.platform == "win32":
                     si = subprocess.STARTUPINFO()
@@ -741,7 +749,6 @@ class ErrorLogTab(QWidget):
                         if line.strip().lower().startswith("time pid tid"):
                             continue
 
-                        # PySide2 환경에서 필요한 수정: split(None, 6)은 동일하게 작동
                         parts = line.strip().split(None, 6)
 
                         if len(parts) < 7:

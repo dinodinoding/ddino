@@ -1,82 +1,90 @@
 import json
 import os
-import time
+import signal
 import subprocess
-from datetime import datetime, timedelta
-from PySide2.QtWidgets import QApplication, QMessageBox
+from PySide2.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QLineEdit, QMessageBox
+)
 import sys
 
-def load_json(path):
-    with open(path, 'r') as f:
-        return json.load(f)
+class HeatingMonitorGUI(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Heating 감지 모니터 (GUI)")
+        self.setFixedSize(320, 200)
 
-def show_alert(message):
-    msg = QMessageBox()
-    msg.setWindowTitle("Heating 감지")
-    msg.setText(message)
-    msg.setIcon(QMessageBox.Warning)
-    msg.exec_()
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
 
-def main():
-    app = QApplication(sys.argv)
+        # 감시 시간 입력
+        time_layout = QHBoxLayout()
+        self.time_input = QLineEdit("60")
+        time_layout.addWidget(QLabel("감시 시간(분):"))
+        time_layout.addWidget(self.time_input)
+        self.layout.addLayout(time_layout)
 
-    # 설정 불러오기
-    settings = load_json("settings.json")
-    config = load_json("config.json")
+        # 감지 횟수 입력
+        count_layout = QHBoxLayout()
+        self.count_input = QLineEdit("3")
+        count_layout.addWidget(QLabel("감지 횟수:"))
+        count_layout.addWidget(self.count_input)
+        self.layout.addLayout(count_layout)
 
-    interval = timedelta(minutes=settings["interval_minutes"])
-    threshold = settings["threshold"]
+        # 버튼
+        button_layout = QHBoxLayout()
+        self.on_button = QPushButton("▶ ON")
+        self.off_button = QPushButton("■ OFF")
+        button_layout.addWidget(self.on_button)
+        button_layout.addWidget(self.off_button)
+        self.layout.addLayout(button_layout)
 
-    raw_log = config["raw_log_path"]
-    bat_file = config["bat_file_path"]
-    converted_log = config["converted_log_path"]
+        self.status_label = QLabel("상태: 대기 중")
+        self.layout.addWidget(self.status_label)
 
-    heating_times = []
-    last_modified_time = 0
+        self.on_button.clicked.connect(self.start_worker)
+        self.off_button.clicked.connect(self.stop_worker)
 
-    # PID 기록 (OFF에서 종료 시 사용)
-    with open("worker.pid", "w") as f:
-        f.write(str(os.getpid()))
-
-    print(">> heating_worker 시작됨")
-    while True:
+    def start_worker(self):
         try:
-            current_modified_time = os.path.getmtime(raw_log)
-        except FileNotFoundError:
-            time.sleep(5)
-            continue
+            interval = int(self.time_input.text())
+            threshold = int(self.count_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "입력 오류", "숫자를 정확히 입력해주세요.")
+            return
 
-        if current_modified_time != last_modified_time:
-            last_modified_time = current_modified_time
+        settings = {
+            "interval_minutes": interval,
+            "threshold": threshold
+        }
 
-            try:
-                subprocess.run(bat_file, shell=True, check=True)
-            except subprocess.CalledProcessError:
-                continue
+        with open("settings.json", "w") as f:
+            json.dump(settings, f)
 
-            try:
-                with open(converted_log, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-            except:
-                continue
+        # heating_worker.exe 실행
+        try:
+            subprocess.Popen(["heating_worker.exe"], shell=True)
+            self.status_label.setText("상태: 모니터링 중")
+        except Exception as e:
+            QMessageBox.critical(self, "실행 오류", str(e))
 
-            now = datetime.now()
+    def stop_worker(self):
+        if not os.path.exists("worker.pid"):
+            QMessageBox.information(self, "정보", "실행 중인 워커가 없습니다.")
+            return
 
-            for line in lines:
-                if 'heating' in line.lower():
-                    try:
-                        timestamp = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
-                        heating_times.append(timestamp)
-                    except:
-                        continue
+        try:
+            with open("worker.pid", "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, signal.SIGTERM)
+            os.remove("worker.pid")
+            self.status_label.setText("상태: 대기 중")
+        except Exception as e:
+            QMessageBox.critical(self, "종료 오류", str(e))
 
-            heating_times = [t for t in heating_times if now - t <= interval]
-
-            if len(heating_times) >= threshold:
-                show_alert(f"{settings['interval_minutes']}분 안에 heating {threshold}회 감지됨")
-                heating_times.clear()
-
-        time.sleep(10)
 
 if __name__ == "__main__":
-    main()
+    app = QApplication(sys.argv)
+    window = HeatingMonitorGUI()
+    window.show()
+    sys.exit(app.exec_())

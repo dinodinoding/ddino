@@ -1,10 +1,10 @@
 # registry_tab.py
 
-from PySide6.QtWidgets import (
+from PySide2.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QMessageBox, QFrame,
     QScrollArea, QTabWidget, QGridLayout, QGraphicsDropShadowEffect
 )
-from PySide6.QtGui import QFont
+from PySide2.QtGui import QFont
 import winreg
 import json
 import os
@@ -20,8 +20,11 @@ class RegistryEntry(QFrame):
     def __init__(self, index, parent_group=None):
         super().__init__()
         self.parent_group = parent_group
+        self.is_locked = False # 잠금 상태 초기화
+
         layout = QVBoxLayout(self)
         row0, row1, row2 = QHBoxLayout(), QHBoxLayout(), QHBoxLayout()
+
         self.title_input = QLineEdit()
         self.description_input = QLineEdit()
         self.root_combo = QComboBox(); self.root_combo.addItems(["HKEY_CURRENT_USER", "HKEY_LOCAL_MACHINE"])
@@ -30,8 +33,13 @@ class RegistryEntry(QFrame):
         self.type_combo = QComboBox(); self.type_combo.addItems(["REG_DWORD", "REG_SZ"])
         self.default_input = QLineEdit()
         self.value_input = QLineEdit()
+
         self.save_button = QPushButton(f"저장 {index+1}")
         self.save_button.clicked.connect(self.save_registry_value)
+
+        self.lock_button = QPushButton("잠금") # 잠금 버튼 추가
+        self.lock_button.clicked.connect(self.toggle_lock_fields)
+        self.lock_button.setCheckable(True) # 토글 가능하게 설정
 
         row0.addWidget(QLabel("제목:")); row0.addWidget(self.title_input)
         row0.addWidget(QLabel("설명:")); row0.addWidget(self.description_input)
@@ -39,15 +47,19 @@ class RegistryEntry(QFrame):
         row1.addWidget(QLabel("경로:")); row1.addWidget(self.path_input)
         row2.addWidget(QLabel("키 이름:")); row2.addWidget(self.key_input)
         row2.addWidget(self.type_combo); row2.addWidget(QLabel("default value:")); row2.addWidget(self.default_input)
-        row2.addWidget(QLabel("수정값:")); row2.addWidget(self.value_input); row2.addWidget(self.save_button)
+        row2.addWidget(QLabel("수정값:")); row2.addWidget(self.value_input)
+        row2.addWidget(self.save_button)
+        row2.addWidget(self.lock_button) # 잠금 버튼 배치
 
         layout.addLayout(row0); layout.addLayout(row1); layout.addLayout(row2)
 
     def get_data(self):
+        # is_locked 상태도 함께 반환
         return {"title": self.title_input.text(), "description": self.description_input.text(),
                 "root": self.root_combo.currentText(), "path": self.path_input.text(),
                 "key": self.key_input.text(), "type": self.type_combo.currentText(),
-                "default": self.default_input.text(), "value": self.value_input.text()}
+                "default": self.default_input.text(), "value": self.value_input.text(),
+                "is_locked": self.is_locked}
 
     def set_data(self, data):
         self.title_input.setText(data.get("title", "")); self.description_input.setText(data.get("description", ""))
@@ -55,19 +67,59 @@ class RegistryEntry(QFrame):
         self.path_input.setText(data.get("path", "")); self.key_input.setText(data.get("key", ""))
         self.type_combo.setCurrentText(data.get("type", "REG_SZ")); self.default_input.setText(data.get("default", ""))
         self.value_input.setText(data.get("value", ""))
+        # 저장된 잠금 상태를 불러와 적용
+        self.is_locked = data.get("is_locked", False)
+        self.lock_button.setChecked(self.is_locked)
+        self.toggle_lock_fields(self.is_locked) # 잠금 상태에 따라 필드 업데이트
 
     def save_registry_value(self):
+        if self.is_locked: # 잠금 상태일 때는 저장 불가
+            QMessageBox.warning(self, "경고", "항목이 잠금 상태여서 저장할 수 없습니다.")
+            return
+
         try:
             root = winreg.HKEY_CURRENT_USER if self.root_combo.currentText() == "HKEY_CURRENT_USER" else winreg.HKEY_LOCAL_MACHINE
-            with winreg.CreateKey(root, self.path_input.text()) as key_handle:
-                val = int(self.value_input.text()) if self.type_combo.currentText() == "REG_DWORD" else self.value_input.text()
-                reg_type = winreg.REG_DWORD if self.type_combo.currentText() == "REG_DWORD" else winreg.REG_SZ
-                winreg.SetValueEx(key_handle, self.key_input.text(), 0, reg_type, val)
+            path = self.path_input.text()
+            key_name = self.key_input.text()
+
+            if not path or not key_name:
+                QMessageBox.warning(self, "경고", "경로와 키 이름을 입력해야 합니다.")
+                return
+
+            with winreg.CreateKey(root, path) as key_handle:
+                val = self.value_input.text()
+                reg_type = winreg.REG_SZ
+
+                if self.type_combo.currentText() == "REG_DWORD":
+                    try:
+                        val = int(val)
+                        reg_type = winreg.REG_DWORD
+                    except ValueError:
+                        QMessageBox.critical(self, "오류", "REG_DWORD 타입은 유효한 정수여야 합니다.")
+                        return
+
+                winreg.SetValueEx(key_handle, key_name, 0, reg_type, val)
                 QMessageBox.information(self, "성공", "레지스트리 저장 완료")
                 if self.parent_group:
                     self.parent_group.save_settings()
         except Exception as e:
             QMessageBox.critical(self, "오류", f"레지스트리 저장 실패: {e}")
+
+    def toggle_lock_fields(self, checked):
+        self.is_locked = checked
+        self.title_input.setReadOnly(checked)
+        self.description_input.setReadOnly(checked)
+        self.root_combo.setEnabled(not checked)
+        self.path_input.setReadOnly(checked)
+        self.key_input.setReadOnly(checked)
+        self.type_combo.setEnabled(not checked)
+        self.default_input.setReadOnly(checked)
+        self.value_input.setReadOnly(checked)
+        self.save_button.setEnabled(not checked) # 저장 버튼도 잠금 상태에 따라 활성화/비활성화
+        self.lock_button.setText("잠금 해제" if checked else "잠금")
+
+        if self.parent_group:
+            self.parent_group.save_settings() # 잠금 상태 변경 시 설정 저장
 
 # --- RegistryTab 클래스 ---
 class RegistryTab(QWidget):
@@ -193,10 +245,18 @@ class RegistryTabGroup(QWidget):
 
     def load_settings(self):
         if not os.path.exists(SETTINGS_FILE):
-            print("[⚠️ 설정 파일 없음 - 기본값 사용]")
+            print("[설정 파일 없음 - 기본값 사용]")
             return
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            all_data = json.load(f)
-        for entry, data in zip(self.get_all_entries(), all_data):
-            entry.set_data(data)
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                all_data = json.load(f)
+            for entry, data in zip(self.get_all_entries(), all_data):
+                entry.set_data(data)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "설정 파일 오류", f"설정 파일을 읽는 중 오류가 발생했습니다: {e}\n파일을 삭제하고 다시 시도하세요.")
+            print(f"[설정 파일 로드 오류] {e}")
+            # 오류 발생 시 설정 파일을 백업하거나 삭제하는 로직 추가 고려
+        except Exception as e:
+            QMessageBox.critical(self, "설정 파일 오류", f"설정 파일을 로드하는 중 알 수 없는 오류가 발생했습니다: {e}")
+            print(f"[설정 파일 로드 알 수 없는 오류] {e}")
 

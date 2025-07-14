@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 from PySide2.QtWidgets import (
@@ -6,11 +7,13 @@ from PySide2.QtWidgets import (
     QSpinBox, QHBoxLayout, QMessageBox, QTextEdit
 )
 from PySide2.QtCore import Qt
-import sys
 from datetime import datetime
 
-# [1] 현재 실행 파일 경로 기준으로 동작
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+# 🔧 [1] 실행 위치 정확하게 판단: .py, .exe 모두 호환
+if getattr(sys, 'frozen', False):
+    BASE_PATH = os.path.dirname(sys.executable)  # exe로 실행되는 경우
+else:
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))  # py로 실행되는 경우
 
 def get_path(filename):
     return os.path.join(BASE_PATH, filename)
@@ -41,7 +44,7 @@ class HeatingMonitorGUI(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
-        # 감시 시간 설정
+        # 감시 시간 입력
         time_layout = QHBoxLayout()
         time_layout.addWidget(QLabel("감시 시간 (분):"))
         self.interval_spin = QSpinBox()
@@ -50,7 +53,7 @@ class HeatingMonitorGUI(QWidget):
         time_layout.addWidget(self.interval_spin)
         layout.addLayout(time_layout)
 
-        # 횟수 설정
+        # 허용 횟수 입력
         count_layout = QHBoxLayout()
         count_layout.addWidget(QLabel("허용 횟수:"))
         self.threshold_spin = QSpinBox()
@@ -59,7 +62,7 @@ class HeatingMonitorGUI(QWidget):
         count_layout.addWidget(self.threshold_spin)
         layout.addLayout(count_layout)
 
-        # 시작/중지 버튼
+        # 버튼
         self.on_button = QPushButton("모니터링 시작")
         self.on_button.clicked.connect(self.start_monitoring)
         layout.addWidget(self.on_button)
@@ -68,11 +71,11 @@ class HeatingMonitorGUI(QWidget):
         self.off_button.clicked.connect(self.stop_monitoring)
         layout.addWidget(self.off_button)
 
-        # 상태 텍스트
+        # 상태 표시
         self.status_label = QLabel("상태: 대기 중")
         layout.addWidget(self.status_label)
 
-        # 로그 콘솔
+        # 로그 창
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
         layout.addWidget(self.log_box)
@@ -101,7 +104,6 @@ class HeatingMonitorGUI(QWidget):
             return
 
         try:
-            # ✅ 여기서 실행 경로를 명시적으로 BASE_PATH로 지정
             self.worker_process = subprocess.Popen(worker_exe, shell=False, cwd=BASE_PATH)
             self.log("모니터링 시작됨")
             QMessageBox.information(self, "시작됨", "Heating 모니터링이 시작되었습니다.")

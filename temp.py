@@ -1,133 +1,59 @@
 import os
-import json
-import subprocess
-from PySide2.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
-    QSpinBox, QHBoxLayout, QMessageBox, QTextEdit
-)
-from PySide2.QtCore import Qt
 import sys
+import time
+import shutil
 from datetime import datetime
 
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+# 콘솔 한글 깨짐 방지 설정
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding = 'utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding = 'utf-8')
+
+# 실행 위치 정확하게 판단: .py, .exe 모두 호환
+if getattr(sys, 'frozen', False):
+    BASE_PATH = os.path.dirname(sys.executable)
+else:
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 def get_path(filename):
     return os.path.join(BASE_PATH, filename)
 
-def load_json(filename):
-    path = get_path(filename)
-    if not os.path.exists(path):
-        return {}
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+# 🔧 복사 주기 설정 (1분 = 60초)
+COPY_INTERVAL_SECONDS = 60 
 
-def save_json(filename, data):
-    path = get_path(filename)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+def copy_log_file(source_path, dest_path):
+    if not os.path.exists(source_path):
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER ERROR] Original log file source not found: {source_path}")
+        return False
 
-class HeatingMonitorGUI(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Heating 모니터링 설정")
-        self.setGeometry(300, 300, 500, 350)
-
-        self.settings = load_json("settings.json")
-        self.worker_process = None
-
-        self.init_ui()
-
-    def init_ui(self):
-        layout = QVBoxLayout()
-
-        # 감시 시간
-        time_layout = QHBoxLayout()
-        time_layout.addWidget(QLabel("감시 시간 (분):"))
-        self.interval_spin = QSpinBox()
-        self.interval_spin.setRange(1, 360)
-        self.interval_spin.setValue(self.settings.get("interval_minutes", 60))
-        time_layout.addWidget(self.interval_spin)
-        layout.addLayout(time_layout)
-
-        # 횟수 설정
-        count_layout = QHBoxLayout()
-        count_layout.addWidget(QLabel("허용 횟수:"))
-        self.threshold_spin = QSpinBox()
-        self.threshold_spin.setRange(1, 10)
-        self.threshold_spin.setValue(self.settings.get("threshold", 3))
-        count_layout.addWidget(self.threshold_spin)
-        layout.addLayout(count_layout)
-
-        # 시작/중지 버튼
-        self.on_button = QPushButton("모니터링 시작")
-        self.on_button.clicked.connect(self.start_monitoring)
-        layout.addWidget(self.on_button)
-
-        self.off_button = QPushButton("모니터링 중지")
-        self.off_button.clicked.connect(self.stop_monitoring)
-        layout.addWidget(self.off_button)
-
-        # 상태 표시
-        self.status_label = QLabel("상태: 대기 중")
-        layout.addWidget(self.status_label)
-
-        # 로그 콘솔
-        self.log_box = QTextEdit()
-        self.log_box.setReadOnly(True)
-        layout.addWidget(self.log_box)
-
-        self.setLayout(layout)
-
-    def log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_box.append(f"[{timestamp}] {message}")
-        self.status_label.setText(f"상태: {message}")
-
-    def update_settings(self):
-        new_settings = {
-            "interval_minutes": self.interval_spin.value(),
-            "threshold": self.threshold_spin.value()
-        }
-        save_json("settings.json", new_settings)
-        self.log("설정 저장됨")
-
-    def start_monitoring(self):
-        self.update_settings()
-        worker_exe = get_path("heating_worker.exe")
-
-        if not os.path.exists(worker_exe):
-            QMessageBox.critical(self, "오류", f"heating_worker.exe를 찾을 수 없습니다:\n{worker_exe}")
-            return
-
-        try:
-            self.worker_process = subprocess.Popen(worker_exe, shell=False)
-            self.log("모니터링 시작됨")
-            QMessageBox.information(self, "시작됨", "Heating 모니터링이 시작되었습니다.")
-        except Exception as e:
-            self.log(f"실행 실패: {e}")
-            QMessageBox.critical(self, "실행 실패", str(e))
-
-    def stop_monitoring(self):
-        pid_path = get_path("worker.pid")
-
-        if not os.path.exists(pid_path):
-            self.log("PID 파일 없음 - 이미 중지됨")
-            QMessageBox.warning(self, "PID 없음", "작동 중인 heating_worker를 찾을 수 없습니다.")
-            return
-
-        try:
-            with open(pid_path, "r") as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 9)
-            os.remove(pid_path)
-            self.log("모니터링 중지됨")
-            QMessageBox.information(self, "종료됨", "Heating 모니터링이 중지되었습니다.")
-        except Exception as e:
-            self.log(f"중지 실패: {e}")
-            QMessageBox.critical(self, "종료 실패", str(e))
+    try:
+        # 원본 파일을 임시 파일로 복사 (덮어쓰기)
+        # shutil.copy2는 메타데이터(수정 시간 등)도 복사하여 PyInstaller 환경에서 오류를 줄입니다.
+        shutil.copy2(source_path, dest_path)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER INFO] Log file copied from '{source_path}' to '{dest_path}'.")
+        return True
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER ERROR] Failed to copy log file: {e}")
+        return False
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    gui = HeatingMonitorGUI()
-    gui.show()
-    sys.exit(app.exec_())
+    # GUI에서 인자를 받도록 변경: sys.argv[1] = original_log_source_path, sys.argv[2] = temp_log_dest_path
+    if len(sys.argv) < 3:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER ERROR] Usage: {sys.argv[0]} <original_log_source_path> <temp_log_dest_path>")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER ERROR] This script should be started by the GUI application.")
+        sys.exit(1)
+
+    ORIGINAL_LOG_SOURCE_PATH = sys.argv[1]
+    TEMP_LOG_DEST_PATH = sys.argv[2]
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER START] Log copier started. Copying every {COPY_INTERVAL_SECONDS} seconds.")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER INFO] Original Source: '{ORIGINAL_LOG_SOURCE_PATH}'")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [COPIER INFO] Temporary Destination: '{TEMP_LOG_DEST_PATH}'")
+    
+    # 첫 실행 시 바로 한 번 복사 시도
+    copy_log_file(ORIGINAL_LOG_SOURCE_PATH, TEMP_LOG_DEST_PATH)
+
+    while True:
+        copy_log_file(ORIGINAL_LOG_SOURCE_PATH, TEMP_LOG_DEST_PATH)
+        time.sleep(COPY_INTERVAL_SECONDS)
+

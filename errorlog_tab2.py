@@ -36,7 +36,6 @@ def load_settings():
     if not os.path.exists(config_path):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] settings.json not found at {config_path}.")
         print("[WORKER INFO] Using default settings. Please save settings via GUI.")
-        # original_log_file_path 대신 worker_target_log_file_path 사용
         return {"interval_minutes": 60, "threshold": 3, "worker_target_log_file_path": get_path("temp_log_for_worker.txt")}
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -53,7 +52,9 @@ def load_settings():
 # 로그에서 heating 메시지 필터링 (converted_log.txt에서 읽음)
 def extract_heating_timestamps_incrementally(log_path, last_read_pos_converted_file):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] Starting incremental extraction from '{log_path}'...")
-    pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[.,]\d+)?).*?heating"
+    # 알려주신 로그 형식에 맞춰 타임스탬프 패턴 재확인
+    # "2024-07-17 10:12:45.333" 이 부분을 정확히 매칭하도록 합니다.
+    pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}).*?heating" 
     new_timestamps = []
     current_read_pos = 0
 
@@ -82,40 +83,37 @@ def extract_heating_timestamps_incrementally(log_path, last_read_pos_converted_f
             file_size = f.tell()
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] '{log_path}' file size: {file_size} bytes.")
 
-            if file_size < current_read_pos: # File rotated or truncated (or simply overwritten by copier)
+            if file_size < current_read_pos: # File truncated or reset
                  print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] '{log_path}' seems to have been reset or truncated. Resetting position to 0 and reading from start.")
                  current_read_pos = 0
 
             f.seek(current_read_pos) # Move to the last read position
 
-            # Read new lines, assuming log copier overwrites the file or appends
-            new_lines = f.readlines() # Read all new lines from current_read_pos
+            new_lines = f.readlines()
             
-            for line_num_in_new_content, line in enumerate(new_lines, 1):
+            for line in new_lines:
                 if "heating" in line.lower():
                     match = re.search(pattern, line, re.IGNORECASE)
                     if match:
                         timestamp_str = match.group(1)
                         try:
-                            found_fmt = None
-                            for fmt in ["%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S,%f", "%Y-%m-%d %H:%M:%S"]:
-                                try:
-                                    ts = datetime.strptime(timestamp_str, fmt)
-                                    new_timestamps.append(ts)
-                                    found_fmt = fmt
-                                    break
-                                except ValueError:
-                                    pass
-                            if not found_fmt:
+                            # 고객님이 알려주신 정확한 형식으로 파싱 시도
+                            ts = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f")
+                            new_timestamps.append(ts)
+                        except ValueError:
+                            # 혹시 .333이 없는 경우 대비하여 다른 형식도 시도
+                            try:
+                                ts = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                                new_timestamps.append(ts)
+                            except ValueError:
                                 print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER WARNING] 'heating' detected, but unknown timestamp format: '{timestamp_str}' in '{line.strip()}'")
                         except Exception as e:
                             print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Exception parsing timestamp: {timestamp_str} - {e}")
                     else:
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER WARNING] 'heating' detected, but timestamp pattern mismatch: '{line.strip()}'")
             
-            new_pos = f.tell() # New position after reading (at the end of the file)
+            new_pos = f.tell()
 
-        # Save the new read position for the next scan
         with open(last_read_pos_converted_file, "w") as f_pos:
             f_pos.write(str(new_pos))
         
@@ -127,19 +125,74 @@ def extract_heating_timestamps_incrementally(log_path, last_read_pos_converted_f
         return new_timestamps, current_read_pos
 
 
+# 🚨🚨🚨 이 함수가 핵심적으로 수정되었습니다 (이제 실제 컨버팅 없이 복사만 진행) 🚨🚨🚨
+# 원본 임시 로그 파일(log_copier가 복사한)을 읽어 converted_log.txt로 "컨버팅"하는 함수
+def convert_and_synchronize_log(source_log_path, dest_converted_log_path, original_read_pos_tracker_path):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] Starting log synchronization from '{source_log_path}' to '{dest_converted_log_path}'...")
+    
+    current_source_read_pos = 0
+    if os.path.exists(original_read_pos_tracker_path):
+        try:
+            with open(original_read_pos_tracker_path, "r") as f:
+                content = f.read().strip()
+                if content:
+                    current_source_read_pos = int(content)
+        except (ValueError, FileNotFoundError):
+            current_source_read_pos = 0 # 파일이 없거나 깨졌을 경우 초기화
+
+    if not os.path.exists(source_log_path):
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] Source log '{source_log_path}' not found for synchronization.")
+        with open(original_read_pos_tracker_path, "w") as f: f.write("0") # 파일이 사라졌다면 읽기 위치 초기화
+        return False
+
+    try:
+        with open(source_log_path, "r", encoding="utf-8", errors="ignore") as source_f:
+            source_f.seek(0, os.SEEK_END)
+            source_file_size = source_f.tell()
+
+            if source_file_size < current_source_read_pos:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Source log '{source_log_path}' truncated or reset. Reading from beginning.")
+                current_source_read_pos = 0 # 읽기 위치 초기화
+            
+            source_f.seek(current_source_read_pos) # 이전 읽은 위치로 이동
+            new_content = source_f.read() # 새로 추가된 내용만 읽기
+            new_source_read_pos = source_f.tell() # 새 읽기 위치 기록
+            
+        if not new_content:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] No new content in source log '{source_log_path}' for synchronization.")
+            # 파일 크기가 같으면 읽기 위치 업데이트 (매번 0으로 리셋되지 않도록)
+            if source_file_size == current_source_read_pos:
+                 with open(original_read_pos_tracker_path, "w") as f: f.write(str(new_source_read_pos))
+            return False
+
+        # 🚨 컨버팅 로직이 필요 없으므로, 새로운 내용을 그대로 converted_log.txt에 추가
+        with open(dest_converted_log_path, "a", encoding="utf-8") as dest_f: # 'a' (append) 모드 유지
+            dest_f.write(new_content) # 새로운 내용을 그대로 씁니다.
+        
+        # 원본 임시 파일의 읽기 위치 업데이트
+        with open(original_read_pos_tracker_path, "w") as f:
+            f.write(str(new_source_read_pos))
+
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Synchronized and appended new content to '{dest_converted_log_path}'.")
+        return True
+
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Error during log synchronization: {e}")
+        return False
+
+
 # 주기적으로 모니터링
 def monitor_loop():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INIT] Monitoring loop started.")
     settings = load_settings()
     interval_minutes = settings.get("interval_minutes", 60)
     threshold = settings.get("threshold", 3)
-    # 워커는 이제 log_copier가 복사한 임시 파일을 읽습니다.
+    
     worker_target_log_file = settings.get("worker_target_log_file_path", get_path("temp_log_for_worker.txt"))
-    converted_log_file = get_path("converted_log.txt") # 워커가 임시 파일의 내용을 추가할 곳
-    last_read_pos_original_file = get_path("last_read_pos_original.txt") # 사용 안 함 (원래 원본 파일용)
-    last_read_pos_converted_file = get_path("last_read_pos_converted.txt") # converted_log.txt용 read pos
+    dest_converted_log_file = get_path("converted_log.txt") 
+    source_log_read_pos_tracker = get_path("last_read_pos_original_for_worker.txt") 
+    converted_log_extract_pos_tracker = get_path("last_read_pos_converted.txt")
 
-    # This cache stores all detected heating timestamps
     extracted_heating_events_cache = []
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Settings: Monitor Interval={interval_minutes} minutes, Threshold={threshold} occurrences.")
@@ -148,54 +201,28 @@ def monitor_loop():
         print("[WORKER INFO] Worker is terminating due to configuration error.")
         sys.exit(1)
     
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Worker will monitor: '{worker_target_log_file}' (created by log copier)")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Converted Log File (output): '{converted_log_file}'")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Converted Log Read Position File: '{last_read_pos_converted_file}'")
-
-    # Initialize read position file for converted_log.txt if it doesn't exist
-    if not os.path.exists(last_read_pos_converted_file):
-        try:
-            with open(last_read_pos_converted_file, "w") as f:
-                f.write("0")
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INIT] '{last_read_pos_converted_file}' initialized.")
-        except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Failed to initialize '{last_read_pos_converted_file}': {e}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Worker will read from (Log Copier output): '{worker_target_log_file}'")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Final Log for analysis (output): '{dest_converted_log_file}'")
     
-    # 🚨 Crucial Change: Update converted_log.txt to always be identical to worker_target_log_file
-    # This assumes worker_target_log_file is always overwritten by log_copier
-    def synchronize_converted_log():
-        if not os.path.exists(worker_target_log_file):
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER DEBUG] Worker target log '{worker_target_log_file}' does not exist yet. Cannot synchronize.")
-            return
-
-        try:
-            # Read entire content of the worker's target log file (temp_log_for_worker.txt)
-            with open(worker_target_log_file, "r", encoding="utf-8", errors="ignore") as source_f:
-                content = source_f.read()
-            
-            # Overwrite converted_log.txt with this content
-            with open(converted_log_file, "w", encoding="utf-8") as dest_f:
-                dest_f.write(content)
-            
-            # Reset read position for converted_log.txt since it's completely rewritten
-            with open(last_read_pos_converted_file, "w") as pos_f:
-                pos_f.write("0")
-            
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Synchronized '{converted_log_file}' with '{worker_target_log_file}'. Resetting read position.")
-        except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Error synchronizing converted log: {e}")
-
-
+    # Initialize read position files if they don't exist
+    for pos_file in [source_log_read_pos_tracker, converted_log_extract_pos_tracker]:
+        if not os.path.exists(pos_file):
+            try:
+                with open(pos_file, "w") as f:
+                    f.write("0")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INIT] '{pos_file}' initialized.")
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Failed to initialize '{pos_file}': {e}")
+    
     while True:
         print(f"\n--- [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] WORKER MONITORING CYCLE START ---")
         
-        # [Step 1] Synchronize converted_log.txt with the latest from log_copier's output
-        synchronize_converted_log()
+        # [Step 1] log_copier가 만든 임시 파일의 내용을 converted_log.txt에 추가
+        convert_and_synchronize_log(worker_target_log_file, dest_converted_log_file, source_log_read_pos_tracker)
 
-        # [Step 2] Extract new heating timestamps from converted_log.txt (which is now synchronized)
-        new_heating_times, _ = extract_heating_timestamps_incrementally(converted_log_file, last_read_pos_converted_file)
+        # [Step 2] 컨버팅된 converted_log.txt에서 heating 타임스탬프 추출
+        new_heating_times, _ = extract_heating_timestamps_incrementally(dest_converted_log_file, converted_log_extract_pos_tracker)
         extracted_heating_events_cache.extend(new_heating_times)
-        # Sort is important for proper filtering and potentially for "first heating" logic
         extracted_heating_events_cache.sort()
 
         # [Step 3] Clean up old events from cache (memory management)
@@ -229,7 +256,6 @@ def show_alert():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ALERT!!!] Attempting to show popup alert: Excessive heating detected!")
     try:
         import ctypes
-        # Title and message will be in English as requested for consistency
         ctypes.windll.user32.MessageBoxW(0, "⚠ Excessive Heating Detected!", "Heating Alert", 0x40 | 0x1) # MB_ICONWARNING | MB_OK
     except Exception as e:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Failed to show alert: {e}. (May not be a Windows environment or a permission issue.)")
@@ -245,13 +271,11 @@ def signal_handler(sig, frame):
         else:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] '{pid_path}' already does not exist.")
         
-        # Clean up temporary position files
-        temp_pos_files = [get_path("last_read_pos_converted.txt")] # last_read_pos_original.txt는 더이상 사용 안함
+        temp_pos_files = [get_path("last_read_pos_converted.txt"), get_path("last_read_pos_original_for_worker.txt")]
         for tf in temp_pos_files:
             if os.path.exists(tf):
                 os.remove(tf)
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER INFO] Temporary file '{tf}' deleted.")
-        # converted_log.txt는 분석용으로 유지
         
     except Exception as e:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [WORKER ERROR] Error during termination cleanup: {e}")

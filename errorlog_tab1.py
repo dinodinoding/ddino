@@ -104,7 +104,6 @@ class GUI_App(QWidget):
                     settings = json.load(f)
                     self.interval_spinbox.setValue(settings.get("interval_minutes", 60))
                     self.threshold_spinbox.setValue(settings.get("threshold", 3))
-                    # 'monitoring_log_file_path' 사용
                     self.monitoring_log_input.setText(settings.get("monitoring_log_file_path", ""))
             except Exception as e:
                 QMessageBox.warning(self, "Load Settings Error", f"Failed to load settings.json: {e}")
@@ -147,7 +146,8 @@ class GUI_App(QWidget):
             return
 
         # 이전 프로세스 정리 (안전하게)
-        self.stop_monitoring()
+        # GUI를 닫아도 워커가 계속 실행되도록 하므로, 여기서는 기존 워커가 있다면 종료합니다.
+        self.stop_monitoring() 
         time.sleep(1) # 프로세스 종료 대기
 
         try:
@@ -214,7 +214,9 @@ class GUI_App(QWidget):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [GUI INFO] Monitoring stopped.")
 
     def closeEvent(self, event):
-        self.stop_monitoring() # GUI 종료 시 워커도 종료
+        # GUI 창을 닫을 때 워커 프로세스를 자동으로 종료하지 않도록 변경했습니다.
+        # 이제 워커는 "Stop Monitoring" 버튼을 통해서만 종료됩니다.
+        # self.stop_monitoring() # 이 줄을 제거했습니다.
         super().closeEvent(event)
 
 if __name__ == "__main__":

@@ -169,7 +169,7 @@ def show_alert():
     logging.warning("Showing alert popup: Excessive heating detected")
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(0, "⚠ Excessive Heating Detected!", "Heating Alert", 0x40 | 0x0)
+        ctypes.windll.user32.MessageBoxW(0, " 과도한 FIB Heating이 감지 되었습니다.\n Maint Call 해주세요. \n -2964-", "Heating Alert", 0x40 | 0x0)
     except Exception as e:
         logging.error(f"Failed to show alert: {e}")
 

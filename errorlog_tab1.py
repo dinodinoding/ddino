@@ -145,7 +145,7 @@ class GUI_App(QWidget):
             "schtasks", "/Create",
             "/TN", task_name,
             "/TR", f'"{exe_path}"',
-            "/SC", "ONSTART",
+            "/SC", "ONLOGON",
             "/RL", "HIGHEST",
             "/F"
         ]

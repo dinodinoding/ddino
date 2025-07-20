@@ -119,6 +119,20 @@ def extract_heating_timestamps_incrementally(log_path, last_read_pos_file):
         logging.error(f"Error reading '{log_path}': {e}")
         return new_timestamps, current_read_pos
 
+# 알람 함수 (Windows MessageBox)
+def show_alert():
+    logging.warning("Showing alert popup: Excessive heating detected")
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            " 과도한 FIB Heating이 감지 되었습니다.\n Maint Call 해주세요. \n -2964-",
+            "Heating Alert",
+            0x40 | 0x0
+        )
+    except Exception as e:
+        logging.error(f"Failed to show alert: {e}")
+
 # 주기적으로 모니터링
 def monitor_loop():
     logging.info("Monitoring loop started.")
@@ -128,6 +142,7 @@ def monitor_loop():
     monitoring_log_file = settings.get("monitoring_log_file_path", "")
     last_read_pos_file = get_path("last_read_pos_for_monitoring_log.txt")
     extracted_cache = []
+    last_alert_count = 0  # 알람 마지막으로 뜬 Heating 수
 
     logging.info(f"Settings: Interval={interval_minutes}, Threshold={threshold}")
     if not monitoring_log_file:
@@ -156,22 +171,14 @@ def monitor_loop():
 
         logging.info(f"Detected events in window: {len(recent)}")
 
-        if len(recent) >= threshold:
+        if len(recent) >= threshold and len(recent) > last_alert_count:
             logging.warning(f"Threshold exceeded: {len(recent)} events in {interval_minutes} minutes")
             show_alert()
+            last_alert_count = len(recent)
         else:
-            logging.info(f"Below threshold. {len(recent)} events.")
+            logging.info(f"Below threshold or already alerted. Count: {len(recent)}, Last Alert Count: {last_alert_count}")
 
         time.sleep(60)
-
-# 알람 함수 (Windows MessageBox)
-def show_alert():
-    logging.warning("Showing alert popup: Excessive heating detected")
-    try:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, " 과도한 FIB Heating이 감지 되었습니다.\n Maint Call 해주세요. \n -2964-", "Heating Alert", 0x40 | 0x0)
-    except Exception as e:
-        logging.error(f"Failed to show alert: {e}")
 
 # 시그널 핸들러
 def signal_handler(sig, frame):

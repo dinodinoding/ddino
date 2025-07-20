@@ -27,11 +27,11 @@ class GUI_App(QWidget):
         self.worker_process = None
         self.init_ui()
         self.load_settings()
-        self.check_worker_running()
 
     def init_ui(self):
         main_layout = QVBoxLayout()
 
+        # Interval 설정
         interval_layout = QHBoxLayout()
         interval_label = QLabel("Monitoring Interval (minutes):")
         self.interval_spinbox = QSpinBox()
@@ -41,6 +41,7 @@ class GUI_App(QWidget):
         interval_layout.addWidget(self.interval_spinbox)
         main_layout.addLayout(interval_layout)
 
+        # Threshold 설정
         threshold_layout = QHBoxLayout()
         threshold_label = QLabel("Threshold (occurrences):")
         self.threshold_spinbox = QSpinBox()
@@ -50,6 +51,7 @@ class GUI_App(QWidget):
         threshold_layout.addWidget(self.threshold_spinbox)
         main_layout.addLayout(threshold_layout)
 
+        # 로그 파일 경로
         log_path_layout = QHBoxLayout()
         monitoring_log_label = QLabel("CSV Log File Path (for Worker):")
         self.monitoring_log_input = QLineEdit()
@@ -61,6 +63,7 @@ class GUI_App(QWidget):
         log_path_layout.addWidget(browse_button)
         main_layout.addLayout(log_path_layout)
 
+        # Start / Stop 버튼 (항상 활성화 상태)
         button_layout = QHBoxLayout()
         self.start_button = QPushButton("Start Monitoring")
         self.start_button.clicked.connect(self.start_monitoring)
@@ -119,18 +122,6 @@ class GUI_App(QWidget):
             self.status_label.setText("Status: Error saving settings.")
             return False
 
-    def check_worker_running(self):
-        pid_path = get_path("worker.pid")
-        if os.path.exists(pid_path):
-            try:
-                with open(pid_path, "r") as f:
-                    pid = int(f.read())
-                os.kill(pid, 0)
-                self.status_label.setText("Status: Monitoring Running (resumed)")
-                self.console_output.appendPlainText("[INFO] Worker already running.")
-            except Exception:
-                pass
-
     def register_worker_autostart(self):
         exe_path = os.path.abspath(get_path("heating_worker.exe"))
         task_name = "HeatingWorkerAutoRun"
@@ -165,7 +156,7 @@ class GUI_App(QWidget):
             QMessageBox.warning(self, "Invalid Path", "Log file path is missing or invalid.")
             return
 
-        self.stop_monitoring()
+        self.stop_monitoring()  # 중복 방지
 
         worker_exe_path = os.path.abspath(get_path("heating_worker.exe"))
         if not os.path.exists(worker_exe_path):
@@ -177,7 +168,6 @@ class GUI_App(QWidget):
             self.worker_process.setWorkingDirectory(os.path.dirname(worker_exe_path))
             self.worker_process.setProcessChannelMode(QProcess.MergedChannels)
             self.worker_process.readyReadStandardOutput.connect(self.handle_worker_output)
-
             self.worker_process.start(worker_exe_path)
 
             if self.worker_process.waitForStarted(3000):
@@ -186,6 +176,7 @@ class GUI_App(QWidget):
                 self.register_worker_autostart()
             else:
                 self.console_output.appendPlainText("[ERROR] Failed to start worker.")
+
         except Exception as e:
             QMessageBox.critical(self, "Execution Error", f"Failed to start worker: {e}")
             self.status_label.setText("Status: Error starting worker.")

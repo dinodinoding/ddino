@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+import signal
 from PySide2.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
     QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog, QPlainTextEdit
@@ -211,7 +212,7 @@ class GUI_App(QWidget):
             try:
                 with open(pid_path, "r") as f:
                     pid = int(f.read().strip())
-                os.kill(pid, 15)  # SIGTERM
+                os.kill(pid, signal.SIGTERM)  # SIGTERM
             except Exception as e:
                 self.console_output.appendPlainText(f"[GUI WARNING] Couldn't kill worker via PID: {e}")
         if self.worker_process:

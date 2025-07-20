@@ -66,7 +66,6 @@ class GUI_App(QWidget):
         self.start_button.clicked.connect(self.start_monitoring)
         self.stop_button = QPushButton("Stop Monitoring")
         self.stop_button.clicked.connect(self.stop_monitoring)
-        self.stop_button.setEnabled(False)
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.stop_button)
         main_layout.addLayout(button_layout)
@@ -127,21 +126,14 @@ class GUI_App(QWidget):
                 with open(pid_path, "r") as f:
                     pid = int(f.read())
                 os.kill(pid, 0)
-                self.start_button.setEnabled(False)
-                self.stop_button.setEnabled(True)
                 self.status_label.setText("Status: Monitoring Running (resumed)")
                 self.console_output.appendPlainText("[INFO] Worker already running.")
             except Exception:
-                self.start_button.setEnabled(True)
-                self.stop_button.setEnabled(False)
-        else:
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+                pass
 
     def register_worker_autostart(self):
         exe_path = os.path.abspath(get_path("heating_worker.exe"))
         task_name = "HeatingWorkerAutoRun"
-
         cmd = [
             "schtasks", "/Create",
             "/TN", task_name,
@@ -190,13 +182,10 @@ class GUI_App(QWidget):
 
             if self.worker_process.waitForStarted(3000):
                 self.status_label.setText("Status: Monitoring Started.")
-                self.start_button.setEnabled(False)
-                self.stop_button.setEnabled(True)
                 self.console_output.appendPlainText("[INFO] Worker started.")
                 self.register_worker_autostart()
             else:
                 self.console_output.appendPlainText("[ERROR] Failed to start worker.")
-
         except Exception as e:
             QMessageBox.critical(self, "Execution Error", f"Failed to start worker: {e}")
             self.status_label.setText("Status: Error starting worker.")
@@ -212,17 +201,16 @@ class GUI_App(QWidget):
             try:
                 with open(pid_path, "r") as f:
                     pid = int(f.read().strip())
-                os.kill(pid, signal.SIGTERM)  # SIGTERM
+                os.kill(pid, signal.SIGTERM)
             except Exception as e:
                 self.console_output.appendPlainText(f"[GUI WARNING] Couldn't kill worker via PID: {e}")
+
         if self.worker_process:
             self.worker_process.kill()
             self.worker_process.waitForFinished()
             self.worker_process = None
 
         self.unregister_worker_autostart()
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
         self.status_label.setText("Status: Idle")
         self.console_output.appendPlainText("[INFO] Worker stopped.")
 

@@ -57,8 +57,7 @@ def load_settings():
 
 # 로그에서 'Heating Steadfast ON' 메시지 필터링
 def extract_heating_timestamps_incrementally(log_path, last_read_pos_file):
-    logging.debug(f"Starting incremental extraction from '{log_path}'...")
-    pattern = r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{3}); Heating Steadfast ON"
+    pattern = r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?); Heating Steadfast ON"
     new_timestamps = []
     current_read_pos = 0
 
@@ -71,10 +70,7 @@ def extract_heating_timestamps_incrementally(log_path, last_read_pos_file):
             logging.warning(f"'{last_read_pos_file}' corrupt or not found. Initializing position to 0.")
             current_read_pos = 0
 
-    logging.debug(f"Previous read position for '{log_path}': {current_read_pos} bytes.")
-
     if not os.path.exists(log_path):
-        logging.debug(f"'{log_path}' does not exist.")
         return new_timestamps, current_read_pos
 
     try:
@@ -95,31 +91,22 @@ def extract_heating_timestamps_incrementally(log_path, last_read_pos_file):
                         timestamp_str = match.group(1)
                         try:
                             ts = datetime.strptime(timestamp_str, "%Y/%m/%d %H:%M:%S.%f")
-                            new_timestamps.append(ts)
                         except ValueError:
-                            try:
-                                ts = datetime.strptime(timestamp_str, "%Y/%m/%d %H:%M:%S")
-                                new_timestamps.append(ts)
-                            except ValueError:
-                                logging.warning(f"Unknown timestamp format: '{timestamp_str}' in '{line.strip()}'")
-                        except Exception as e:
-                            logging.error(f"Exception parsing timestamp: {timestamp_str} - {e}")
-                    else:
-                        logging.warning(f"Timestamp pattern mismatch for line: '{line.strip()}'")
+                            ts = datetime.strptime(timestamp_str, "%Y/%m/%d %H:%M:%S")
+                        new_timestamps.append(ts)
 
             new_pos = f.tell()
 
         with open(last_read_pos_file, "w") as f_pos:
             f_pos.write(str(new_pos))
 
-        logging.debug(f"{len(new_timestamps)} new heating timestamps extracted. New read position: {new_pos}.")
         return new_timestamps, new_pos
 
     except Exception as e:
         logging.error(f"Error reading '{log_path}': {e}")
         return new_timestamps, current_read_pos
 
-# 알람 함수 (Windows MessageBox)
+# 알람 팝업
 def show_alert():
     logging.warning("Showing alert popup: Excessive heating detected")
     try:
@@ -133,7 +120,7 @@ def show_alert():
     except Exception as e:
         logging.error(f"Failed to show alert: {e}")
 
-# 주기적으로 모니터링
+# 모니터링 루프
 def monitor_loop():
     logging.info("Monitoring loop started.")
     settings = load_settings()
@@ -142,9 +129,9 @@ def monitor_loop():
     monitoring_log_file = settings.get("monitoring_log_file_path", "")
     last_read_pos_file = get_path("last_read_pos_for_monitoring_log.txt")
     extracted_cache = []
-    last_alert_count = 0  # 알람 마지막으로 뜬 Heating 수
 
-    logging.info(f"Settings: Interval={interval_minutes}, Threshold={threshold}")
+    last_alert_time = None  # 마지막 알람 발생 시각
+
     if not monitoring_log_file:
         logging.error("monitoring_log_file_path is empty.")
         sys.exit(1)
@@ -158,25 +145,29 @@ def monitor_loop():
             logging.error(f"Failed to initialize '{last_read_pos_file}': {e}")
 
     while True:
-        logging.info("\n--- WORKER MONITORING CYCLE START ---")
+        logging.info("\n--- MONITORING CYCLE ---")
         new_times, _ = extract_heating_timestamps_incrementally(monitoring_log_file, last_read_pos_file)
         extracted_cache.extend(new_times)
         extracted_cache.sort()
-        clean_up_time = datetime.now() - timedelta(minutes=interval_minutes + 10)
-        extracted_cache = [t for t in extracted_cache if t >= clean_up_time]
 
         now = datetime.now()
         window_start = now - timedelta(minutes=interval_minutes)
         recent = [t for t in extracted_cache if window_start <= t <= now]
 
-        logging.info(f"Detected events in window: {len(recent)}")
+        logging.info(f"Heating events in window ({window_start.strftime('%H:%M')} ~ {now.strftime('%H:%M')}): {len(recent)}")
 
-        if len(recent) >= threshold and len(recent) > last_alert_count:
-            logging.warning(f"Threshold exceeded: {len(recent)} events in {interval_minutes} minutes")
-            show_alert()
-            last_alert_count = len(recent)
+        # 알람 발생 조건
+        if len(recent) >= threshold:
+            latest_heating_time = max(recent)
+
+            if last_alert_time is None or latest_heating_time > last_alert_time:
+                show_alert()
+                last_alert_time = now
+                logging.info(f"🚨 Alert triggered. New heating event(s) since last alert at {last_alert_time}")
+            else:
+                logging.info("❗ Enough events but no new heating since last alert → No alert")
         else:
-            logging.info(f"Below threshold or already alerted. Count: {len(recent)}, Last Alert Count: {last_alert_count}")
+            logging.info("ℹ️ Not enough heating events for alert")
 
         time.sleep(60)
 
@@ -196,6 +187,7 @@ def signal_handler(sig, frame):
         logging.error(f"Cleanup error: {e}")
     sys.exit(0)
 
+# 메인 실행
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

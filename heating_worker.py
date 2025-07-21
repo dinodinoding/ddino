@@ -163,11 +163,11 @@ def monitor_loop():
             if last_alert_time is None or latest_heating_time > last_alert_time:
                 show_alert()
                 last_alert_time = now
-                logging.info(f"🚨 Alert triggered. New heating event(s) since last alert at {last_alert_time}")
+                logging.info(f" Alert triggered. New heating event(s) since last alert at {last_alert_time}")
             else:
-                logging.info("❗ Enough events but no new heating since last alert → No alert")
+                logging.info("Enough events but no new heating since last alert → No alert")
         else:
-            logging.info("ℹ️ Not enough heating events for alert")
+            logging.info("Not enough heating events for alert")
 
         time.sleep(60)
 

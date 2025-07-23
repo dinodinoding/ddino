@@ -12,7 +12,7 @@ BG_COLOR = "#f0f0f0"
 
 WIDTH = 390
 HEIGHT = 300
-TEXT_WIDTH = 175
+TEXT_WIDTH = 180
 TEXT_HEIGHT = 270
 
 _config = {}
@@ -143,11 +143,11 @@ def create_gui():
     popup.overrideredirect(True)
     popup.configure(bg=BG_COLOR)
     popup.attributes("-topmost", False)
-    popup.attributes("-alpha", 0.95)
+    popup.attributes("-alpha", 0.5)
     popup.lower()
 
     # 화면 위치 고정 (오른쪽 모니터 끝)
-    x = 3510
+    x = 3450
     y = 390
     popup.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
 

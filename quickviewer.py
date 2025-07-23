@@ -15,18 +15,14 @@ HEIGHT = 300
 TEXT_WIDTH = 175
 TEXT_HEIGHT = 270
 
-# global 변수로 config를 선언하여 다른 함수에서도 접근 가능하도록 합니다.
-# 실제 애플리케이션에서는 이 방법보다는 필요한 함수에 인자로 전달하는 것이 더 좋습니다.
-# 여기서는 편의상 global로 선언합니다.
 _config = {}
 
-# ─────────────────────────────────────────────
 def load_config():
-    global _config # _config 변수를 전역 변수로 사용
+    global _config
     base = getattr(sys, "frozen", False) and sys.executable or __file__
     path = os.path.join(os.path.dirname(base), CONFIG_PATH)
     if not os.path.exists(path):
-        _config = {} # 파일이 없으면 빈 딕셔너리로 초기화
+        _config = {}
         return _config
     with open(path, "r", encoding="utf-8") as f:
         _config = json.load(f)
@@ -98,39 +94,43 @@ def bind_window_drag(window):
     def start_move(event):
         window.x = event.x
         window.y = event.y
+
     def do_move(event):
         dx = event.x - window.x
         dy = event.y - window.y
-        window.geometry(f"+{window.winfo_x() + dx}+{window.winfo_y() + dy}")
+
+        new_x = window.winfo_x() + dx
+        new_y = window.winfo_y() + dy
+
+        # 오른쪽 모니터의 경계 제한 (1920~3840), 1080 높이 기준
+        MONITOR_X_MIN = 1920
+        MONITOR_X_MAX = 3840
+        MONITOR_Y_MIN = 0
+        MONITOR_Y_MAX = 1080
+
+        new_x = max(MONITOR_X_MIN, min(new_x, MONITOR_X_MAX - WIDTH))
+        new_y = max(MONITOR_Y_MIN, min(new_y, MONITOR_Y_MAX - HEIGHT))
+
+        window.geometry(f"+{new_x}+{new_y}")
+
     window.bind("<ButtonPress-1>", start_move)
     window.bind("<B1-Motion>", do_move)
 
-# launch_detail_view 함수를 config에서 경로를 불러오도록 수정
 def launch_detail_view():
-    # _config 전역 변수에서 "detail_file_path"를 가져옵니다.
-    # 기본값으로 빈 문자열을 설정하여 키가 없을 때 오류 방지
     target = _config.get("detail_file_path", "")
-    
     if not target:
         tk.messagebox.showerror("경로 오류", "config.json에 'detail_file_path'가 설정되지 않았습니다.")
         return
-
-    # 파일 또는 디렉토리가 존재하는지 확인
     if not os.path.exists(target):
         tk.messagebox.showerror("파일 없음", f"지정된 경로의 파일이나 폴더가 존재하지 않습니다:\n{target}")
         return
-
     try:
-        # 파일 또는 디렉토리를 엽니다.
-        # 'start' 명령은 파일, 디렉토리, URL 등을 기본 프로그램으로 엽니다.
         subprocess.Popen(["start", "", target], shell=True)
     except Exception as e:
         tk.messagebox.showerror("실행 오류", f"파일을 열 수 없습니다:\n{e}")
 
-# ─────────────────────────────────────────────
 def create_gui():
-    # config를 로드합니다. 이제 _config 전역 변수에 저장됩니다.
-    load_config() 
+    load_config()
     filepath = os.path.abspath(_config.get("data_file", ""))
     left_keys = _config.get("left_keywords", [])
     right_keys = _config.get("right_keywords", [])
@@ -144,12 +144,11 @@ def create_gui():
     popup.configure(bg=BG_COLOR)
     popup.attributes("-topmost", False)
     popup.attributes("-alpha", 0.95)
-    popup.lower() # 창을 맨 뒤로 보내려고 시도
+    popup.lower()
 
-    screen_w = popup.winfo_screenwidth()
-    screen_h = popup.winfo_screenheight()
-    x = screen_w - WIDTH - 20
-    y = (screen_h // 2) - (HEIGHT // 2)
+    # 화면 위치 고정 (오른쪽 모니터 끝)
+    x = 3510
+    y = 390
     popup.geometry(f"{WIDTH}x{HEIGHT}+{x}+{y}")
 
     bind_window_drag(popup)
@@ -191,7 +190,7 @@ def create_gui():
     control_frame.pack(side="right")
 
     detail_frame = tk.Frame(control_frame, bg=BG_COLOR)
-    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view, # 함수 호출 그대로 유지
+    tk.Button(detail_frame, text="⚙", font=("Arial", 10), command=launch_detail_view,
               bg=BG_COLOR, activebackground=BG_COLOR).pack(side="right")
     tk.Label(detail_frame, text="Details", font=("Arial", 9), bg=BG_COLOR).pack(side="right")
     detail_frame.pack(side="right", padx=(0,10))

@@ -5,8 +5,7 @@ import subprocess
 import signal
 from PySide2.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
-    QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog, QPlainTextEdit,
-    QCheckBox
+    QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog, QPlainTextEdit
 )
 from PySide2.QtCore import Qt, QProcess
 
@@ -23,7 +22,7 @@ class GUI_App(QWidget):
         super(GUI_App, self).__init__()
         self.worker_exe_name = "heating_monitor_worker.exe"
         self.setWindowTitle("Heating Monitor - Control Panel")
-        self.setGeometry(100, 100, 600, 450)
+        self.setGeometry(100, 100, 600, 420) # 높이를 약간 줄임
 
         self.worker_process = None
         self.init_ui()
@@ -32,6 +31,7 @@ class GUI_App(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout()
 
+        # LOG 모드 타임아웃 설정
         interval_layout = QHBoxLayout()
         interval_label = QLabel("LOG Mode Timeout (minutes):")
         self.interval_spinbox = QSpinBox()
@@ -41,6 +41,7 @@ class GUI_App(QWidget):
         interval_layout.addWidget(self.interval_spinbox)
         main_layout.addLayout(interval_layout)
 
+        # Threshold 설정
         threshold_layout = QHBoxLayout()
         threshold_label = QLabel("Threshold (occurrences):")
         self.threshold_spinbox = QSpinBox()
@@ -50,6 +51,7 @@ class GUI_App(QWidget):
         threshold_layout.addWidget(self.threshold_spinbox)
         main_layout.addLayout(threshold_layout)
 
+        # 경로 입력 필드들
         main_layout.addLayout(self._make_path_input(
             "CSV Log File Path:", "monitoring_log_input", "Browse...", self.browse_csv_file))
         
@@ -59,6 +61,7 @@ class GUI_App(QWidget):
         main_layout.addLayout(self._make_path_input(
             "Converted Log TXT File Path:", "converted_log_input", "Save As...", self.browse_txt_file_save))
         
+        # 변환기 이름 입력 필드
         converter_layout = QHBoxLayout()
         converter_label = QLabel("Converter Executable Name:")
         self.converter_name_input = QLineEdit("g4_converter.exe")
@@ -66,10 +69,9 @@ class GUI_App(QWidget):
         converter_layout.addWidget(self.converter_name_input)
         main_layout.addLayout(converter_layout)
 
-        self.test_mode_checkbox = QCheckBox("Enable Test Mode (수동 로그 테스트 및 변환기 건너뛰기)")
-        # --- 오류 수정: addLayout -> addWidget 으로 변경 ---
-        main_layout.addWidget(self.test_mode_checkbox)
+        # --- 테스트 모드 체크박스 완전 제거 ---
 
+        # Start/Stop 버튼
         button_layout = QHBoxLayout()
         self.start_button = QPushButton("Start Monitoring")
         self.start_button.clicked.connect(self.start_monitoring)
@@ -79,6 +81,7 @@ class GUI_App(QWidget):
         button_layout.addWidget(self.stop_button)
         main_layout.addLayout(button_layout)
 
+        # 상태 및 콘솔 출력
         self.status_label = QLabel("Status: Idle")
         main_layout.addWidget(self.status_label)
         self.console_output = QPlainTextEdit()
@@ -129,7 +132,7 @@ class GUI_App(QWidget):
                 self.log_file_input.setText(settings.get("log_file_path", ""))
                 self.converted_log_input.setText(settings.get("converted_log_file_path", ""))
                 self.converter_name_input.setText(settings.get("converter_exe_name", "g4_converter.exe"))
-                self.test_mode_checkbox.setChecked(settings.get("test_mode", False))
+                # --- 테스트 모드 로드 로직 제거 ---
                 self.status_label.setText("Status: Settings loaded.")
             except Exception as e:
                 QMessageBox.warning(self, "Load Error", f"settings.json 읽기 실패: {e}")
@@ -145,7 +148,7 @@ class GUI_App(QWidget):
             "log_file_path": self.log_file_input.text(),
             "converted_log_file_path": self.converted_log_input.text(),
             "converter_exe_name": self.converter_name_input.text(),
-            "test_mode": self.test_mode_checkbox.isChecked()
+            # --- 테스트 모드 저장 로직 제거 ---
         }
         try:
             with open(config_path, "w", encoding="utf-8") as f:

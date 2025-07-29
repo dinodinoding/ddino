@@ -27,7 +27,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
-# 콘솔 출력도 디버깅용으로 추가
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
@@ -44,9 +43,8 @@ def load_settings():
     try:
         with open(get_path("settings.json"), "r", encoding="utf-8") as f:
             settings = json.load(f)
-        if settings.get("test_mode", False):
-            logger.setLevel(logging.DEBUG)
-            logging.debug("[MODE] 테스트 모드 활성화됨")
+        logger.setLevel(logging.DEBUG)
+        logging.debug("[CONFIG] 설정 파일 로드됨")
         return settings
     except Exception as e:
         logging.error(f"[CONFIG] 설정 로드 실패: {e}")
@@ -86,11 +84,10 @@ def parse_csv_for_trigger(csv_path):
         logging.error(f"[CSV] 파싱 실패: {e}")
     return False, None
 
-def convert_log():
+def convert_log(exe_path):
     try:
-        exe_path = get_path("log_converter.exe")
         if not os.path.exists(exe_path):
-            logging.error("[LOG] 변환기 log_converter.exe 없음")
+            logging.error(f"[LOG] 변환기 없음: {exe_path}")
             return False
         subprocess.run([exe_path], check=True)
         logging.debug("[LOG] 변환기 실행 성공")
@@ -135,14 +132,23 @@ def monitor_loop():
     interval = settings.get("interval_minutes", 60)
     threshold = settings.get("threshold", 3)
     csv_path = settings.get("monitoring_log_file_path", "")
-    converted_log_path = get_path(os.path.join("log", "converted_log.txt"))
+    converted_log_path = settings.get("converted_log_file_path", get_path("log/converted_log.txt"))
+    converter_exe_path = settings.get("converter_exe_name", get_path("log_converter.exe"))
+    raw_log_path = settings.get("log_file_path", "")
+
+    logging.info("[START] 감시 시작됨")
+    logging.info(f"[CONFIG] CSV 로그 경로: {csv_path}")
+    logging.info(f"[CONFIG] 변환기 경로: {converter_exe_path}")
+    logging.info(f"[CONFIG] 변환 로그 경로: {converted_log_path}")
+    logging.info(f"[CONFIG] 원본 로그 경로 (raw): {raw_log_path}")
+
+    if raw_log_path and not os.path.exists(raw_log_path):
+        logging.warning(f"[CONFIG] 설정된 원본 로그 파일 존재하지 않음: {raw_log_path}")
 
     state = "CSV"
     last_alert_time = None
     log_mode_start_time = None
     initial_heating_time = None
-
-    logging.info("[START] 감시 시작됨")
 
     while True:
         logging.debug(f"[LOOP] 현재 상태: {state}")
@@ -157,18 +163,18 @@ def monitor_loop():
                     state = "LOG"
                     log_mode_start_time = datetime.now()
                     initial_heating_time = ts
-                    heating_count = 1  # CSV에서 1회 감지
+                    heating_count = 1
                     logging.debug(f"[LOG] 초기 heating 카운트: {heating_count}")
                     continue
 
         elif state == "LOG":
             now = datetime.now()
-            if log_mode_start_time and now - log_mode_start_time > timedelta(hours=1):
-                logging.warning("[LOG] 감시 1시간 초과 → CSV 복귀")
+            if log_mode_start_time and now - log_mode_start_time > timedelta(minutes=interval):
+                logging.warning("[LOG] 감시 시간 초과 → CSV 복귀")
                 state = "CSV"
                 continue
 
-            if not convert_log():
+            if not convert_log(converter_exe_path):
                 logging.warning("[LOG] 변환 실패 - 재시도 대기")
             elif os.path.exists(converted_log_path):
                 count, reset = parse_converted_log(converted_log_path, threshold, initial_heating_time)

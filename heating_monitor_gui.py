@@ -5,11 +5,13 @@ import sys
 import json
 import subprocess
 import signal
-from PySide2.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
-    QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog, QPlainTextEdit
+    QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog
 )
-from PySide2.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt
+
+# QProcess와 QPlainTextEdit는 더 이상 필요 없으므로 import에서 제거해도 됩니다.
 
 if getattr(sys, 'frozen', False):
     BASE_PATH = os.path.dirname(sys.executable)
@@ -24,9 +26,7 @@ class GUI_App(QWidget):
         super(GUI_App, self).__init__()
         self.worker_exe_name = "heating_monitor_worker.exe"
         self.setWindowTitle("Heating Monitor - Control Panel")
-        self.setGeometry(100, 100, 600, 420)
-
-        self.worker_process = None
+        self.setGeometry(100, 100, 600, 270) # 콘솔이 없으므로 높이 조절
         self.init_ui()
         self.load_settings()
 
@@ -61,7 +61,7 @@ class GUI_App(QWidget):
         converter_layout.addWidget(self.converter_name_input)
         main_layout.addLayout(converter_layout)
         button_layout = QHBoxLayout()
-        self.start_button = QPushButton("Start Monitoring")
+        self.start_button = QPushButton("Start / Restart Monitoring")
         self.start_button.clicked.connect(self.start_monitoring)
         self.stop_button = QPushButton("Stop Monitoring")
         self.stop_button.clicked.connect(self.stop_monitoring)
@@ -70,12 +70,6 @@ class GUI_App(QWidget):
         main_layout.addLayout(button_layout)
         self.status_label = QLabel("Status: Idle")
         main_layout.addWidget(self.status_label)
-        self.console_output = QPlainTextEdit()
-        self.console_output.setReadOnly(True)
-        self.console_output.setMaximumBlockCount(500)
-        self.console_output.setFixedHeight(150)
-        main_layout.addWidget(QLabel("Worker Console Output:"))
-        main_layout.addWidget(self.console_output)
         self.setLayout(main_layout)
 
     def _make_path_input(self, label_text, attr_name, button_text, callback):
@@ -138,76 +132,71 @@ class GUI_App(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"설정 저장 실패: {e}")
             return False
+
+    # --- 최종 수정된 start_monitoring 함수 ---
+    def start_monitoring(self):
+        if not self.save_settings():
+            return
+        
+        self.stop_monitoring(is_starting=True)
+        self.register_worker_autostart()
+        
+        try:
+            worker_exe_path = os.path.abspath(get_path(self.worker_exe_name))
+            if not os.path.exists(worker_exe_path):
+                QMessageBox.critical(self, "Start Error", f"Worker executable not found:\n{worker_exe_path}")
+                return
+
+            # DETACHED_PROCESS 플래그를 사용하여 GUI와 완전히 독립된 프로세스를 생성합니다.
+            # 이것이 GUI를 닫아도 워커가 꺼지지 않게 하는 핵심입니다.
+            subprocess.Popen([worker_exe_path], creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
             
+            QMessageBox.information(self, "Success", "Monitoring started and registered for auto-run.")
+            self.status_label.setText("Status: Monitoring Running.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Start Error", f"Failed to start the monitoring process directly.\nError: {e}")
+            self.status_label.setText("Status: Start Failed.")
+
+    def stop_monitoring(self, is_starting=False):
+        self.unregister_worker_autostart()
+        try:
+            kill_command = f"taskkill /F /IM {self.worker_exe_name}"
+            subprocess.run(kill_command, shell=True, check=True, capture_output=True)
+            if not is_starting:
+                QMessageBox.information(self, "Success", "Monitoring stopped and auto-run unregistered.")
+        except subprocess.CalledProcessError:
+            pass
+        self.status_label.setText("Status: Idle.")
+
     def register_worker_autostart(self):
         exe_path = os.path.abspath(get_path(self.worker_exe_name))
         task_name = "HeatingWorkerAutoRun"
         cmd = ["schtasks", "/Create", "/TN", task_name, "/TR", f'"{exe_path}"', "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
         try:
-            subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-            self.console_output.appendPlainText("[INFO] Worker autostart 등록 완료.")
+            subprocess.run(cmd, shell=True, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
-            self.console_output.appendPlainText(f"[ERROR] 작업 스케줄러 등록 실패: {e.stderr}")
+            QMessageBox.critical(self, "Register Error", f"작업 스케줄러 등록 실패: {e.stderr.decode('cp949', errors='ignore')}")
 
     def unregister_worker_autostart(self):
         task_name = "HeatingWorkerAutoRun"
         try:
-            subprocess.run(f'schtasks /Delete /TN {task_name} /F', shell=True, check=True, capture_output=True, text=True)
-            self.console_output.appendPlainText("[INFO] Worker autostart 제거 완료.")
-        except subprocess.CalledProcessError as e:
-            self.console_output.appendPlainText(f"[ERROR] 작업 스케줄러 제거 실패: {e.stderr}")
+            subprocess.run(f'schtasks /Delete /TN {task_name} /F', shell=True, check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            pass
             
-    def start_monitoring(self):
-        if not self.save_settings(): return
-        worker_exe_path = os.path.abspath(get_path(self.worker_exe_name))
-        if not os.path.exists(worker_exe_path):
-            QMessageBox.warning(self, "Executable Not Found", f"{self.worker_exe_name} not found.")
-            return
-        self.stop_monitoring()
-        self.worker_process = QProcess(self)
-        self.worker_process.setWorkingDirectory(os.path.dirname(worker_exe_path))
-        self.worker_process.setProcessChannelMode(QProcess.MergedChannels)
-        self.worker_process.readyReadStandardOutput.connect(self.handle_worker_output)
-        self.worker_process.start(worker_exe_path)
-        if self.worker_process.waitForStarted(3000):
-            self.status_label.setText("Status: Monitoring Started.")
-            self.console_output.appendPlainText("[INFO] Worker started.")
-            self.register_worker_autostart()
-        else:
-            self.console_output.appendPlainText(f"[ERROR] Failed to start worker: {self.worker_process.errorString()}")
-
-    # --- 최종 핵심 수정 부분 ---
-    # 워커가 보내는 출력을 'cp949'로 해석하여 한글이 깨지지 않게 합니다.
-    def handle_worker_output(self):
-        if self.worker_process:
-            output = self.worker_process.readAllStandardOutput().data().decode("cp949", errors="ignore")
-            self.console_output.appendPlainText(output.strip())
-    # --- 수정 끝 ---
-
-    def stop_monitoring(self):
-        pid_path = get_path("worker.pid")
-        if os.path.exists(pid_path):
-            try:
-                with open(pid_path, "r") as f:
-                    pid = int(f.read().strip())
-                os.kill(pid, signal.SIGTERM)
-                self.console_output.appendPlainText(f"[INFO] Sent SIGTERM to PID {pid}.")
-            except Exception as e:
-                self.console_output.appendPlainText(f"[GUI WARNING] Couldn't kill worker via PID: {e}")
-        if self.worker_process and self.worker_process.state() != QProcess.NotRunning:
-            self.worker_process.kill()
-            self.worker_process.waitForFinished()
-        self.worker_process = None
-        self.unregister_worker_autostart()
-        self.status_label.setText("Status: Idle")
-        self.console_output.appendPlainText("[INFO] Worker stopped.")
-
     def closeEvent(self, event):
-        
         event.accept()
 
 if __name__ == "__main__":
+    # PyInstaller의 유령 프로세스 문제를 방지하기 위한 코드
+    try:
+        import multiprocessing
+        multiprocessing.freeze_support()
+    except ImportError:
+        pass
+
     app = QApplication(sys.argv)
     window = GUI_App()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec_())

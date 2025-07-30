@@ -8,7 +8,6 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
-import io
 
 # 경로 설정
 if getattr(sys, 'frozen', False):
@@ -19,29 +18,17 @@ else:
 def get_path(filename):
     return os.path.join(BASE_PATH, filename)
 
-# --- 콘솔 Unicode 출력 오류 방지용 설정 ---
-try:
-    sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='replace')
-except Exception:
-    pass
-
-# 로그 설정
+# 로그 설정 (콘솔 출력 제거, 파일 로그만 사용)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 log_file_path = get_path("worker.log")
 
 file_handler = RotatingFileHandler(log_file_path, maxBytes=2_000_000, backupCount=3)
-file_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
-# 로그 flush 강제
+# 로그 flush 강제 적용
 for handler in logger.handlers:
     if isinstance(handler, RotatingFileHandler):
         handler.addFilter(lambda record: handler.flush() or True)

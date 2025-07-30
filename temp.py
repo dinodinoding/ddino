@@ -27,30 +27,24 @@ log_file_path = get_path("worker.log")
 
 # RotatingFileHandler에서 encoding 파라미터를 완전히 제거
 file_handler = RotatingFileHandler(log_file_path, maxBytes=2_000_000, backupCount=3)
-# <여기를 수정하세요>: 버퍼를 사용하지 않도록 강제 설정
-file_handler.doRollover = file_handler.doRollover # 이 줄은 기존 함수를 그대로 덮어쓰는 것인데, 사실상 의미 없음.
-file_handler.setStream(file_handler.stream) # 이 줄은 버퍼링을 즉시 적용시키지 않음.
-# 실제 핵심 수정은 아래 두 줄입니다.
 
 file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# <여기를 수정하세요>: 모든 로그 메시지가 기록된 후 바로 파일에 쓰도록 강제
+# 모든 로그 메시지가 기록된 후 바로 파일에 쓰도록 강제
 # 로거가 메시지를 처리할 때마다 file_handler.flush()를 호출하도록 합니다.
 for handler in logger.handlers:
     if isinstance(handler, RotatingFileHandler):
         handler.addFilter(lambda record: handler.flush() or True)
-    # console_handler도 있다면 추가 (필요시)
-    # if isinstance(handler, logging.StreamHandler):
-    #     handler.addFilter(lambda record: handler.flush() or True)
-
 
 # 콘솔 출력도 시스템 기본 인코딩을 사용하도록 관련 설정을 모두 제거
+# UnicodeEncodeError 해결을 위해 콘솔 인코딩을 UTF-8로 명시적 지정
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG) # 디버깅을 위해 DEBUG 레벨 유지
 console_handler.setFormatter(formatter)
+console_handler.encoding = 'utf-8' # <--- 이 부분이 핵심 수정입니다.
 logger.addHandler(console_handler)
 # --- 수정 끝 ---
 
@@ -119,7 +113,7 @@ def convert_log(settings):
         converter_name = settings.get("converter_exe_name", "g4_converter.exe")
         source_log_path = settings.get("log_file_path")
         target_txt_path = settings.get("converted_log_file_path")
-        
+
         converter_exe_path = get_path(converter_name)
 
         if not os.path.exists(converter_exe_path):
@@ -136,10 +130,10 @@ def convert_log(settings):
 
         logging.debug(f"[LOG_WATCH] 변환기 실행: {' '.join(command)}")
         subprocess.run(command, check=True, capture_output=True, text=True, timeout=15)
-        
+
         logging.debug(f"[LOG_WATCH] 변환기 실행 성공, 결과 파일: {target_txt_path}")
         return True
-        
+
     except subprocess.TimeoutExpired:
         logging.error("[LOG_WATCH] 변환기 실행 시간 초과(15초). 변환기 프로세스가 멈췄을 수 있습니다.")
         return False
@@ -167,7 +161,7 @@ def parse_converted_log(txt_path, threshold, initial_time=None):
                                 reset = True
                                 break
                         except ValueError: continue
-                
+
                 if "The FIB source is heating" in line:
                     ts_match = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
                     if ts_match:
@@ -188,7 +182,7 @@ def monitor_loop(settings):
     threshold = settings.get("threshold", 3)
     csv_path = settings.get("monitoring_log_file_path", "")
     log_mode_timeout_minutes = settings.get("interval_minutes", 60)
-    
+
     converted_log_path = settings.get("converted_log_file_path")
     if not converted_log_path:
         logging.error("[CONFIG] 치명적 오류: 변환된 로그 파일 경로(converted_log_file_path)가 settings.json에 없습니다.")
@@ -217,7 +211,7 @@ def monitor_loop(settings):
                     log_mode_start_time = datetime.now()
                     initial_heating_time = ts
                     heating_count = 1
-                    
+
         elif state == "LOG":
             logging.info(f"[LOG_WATCH] 변환된 로그 분석 시작 (트리거 시간: {initial_heating_time})...")
             now = datetime.now()
@@ -229,10 +223,10 @@ def monitor_loop(settings):
                 last_alert_time = now
                 state = "CSV"
                 last_processed_time = now
-            
+
             elif not convert_log(settings):
                 logging.warning("[LOG_WATCH] 변환 실패 - 다음 주기에 재시도")
-            
+
             elif converted_log_path and os.path.exists(converted_log_path):
                 needed_count = threshold - heating_count
                 count, reset = parse_converted_log(converted_log_path, needed_count, initial_heating_time)
@@ -243,7 +237,7 @@ def monitor_loop(settings):
                     logging.info("[LOG_WATCH] 'working properly' 리셋 조건 발견 → CSV 복귀")
                     state = "CSV"
                     last_processed_time = now
-                    
+
                 elif total_count >= threshold:
                     if not last_alert_time or (now - last_alert_time).seconds > 60:
                         logging.info(f"[ALERT] 임계값 조건 충족 (Total: {total_count} >= {threshold}) → 알람 실행")
@@ -277,6 +271,6 @@ if __name__ == "__main__":
     if not settings:
         logging.critical("[EXIT] 설정 파일을 로드할 수 없어 프로그램을 종료합니다.")
         sys.exit(1)
-        
+
     write_pid()
     monitor_loop(settings)

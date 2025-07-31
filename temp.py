@@ -8,6 +8,7 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
+import ctypes # ctypes 모듈을 여기에 명시적으로 import 합니다.
 
 # Path Configuration
 if getattr(sys, 'frozen', False):
@@ -19,8 +20,6 @@ def get_path(filename):
     return os.path.join(BASE_PATH, filename)
 
 # --- Critical Modification for Logging ---
-# To prevent worker.log file corruption, remove all 'encoding' related options.
-# This ensures it's saved using Windows' default method (CP949) and is not corrupted in Notepad.
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 log_file_path = get_path("worker.log")
@@ -33,7 +32,6 @@ formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Remove all related settings to use the system's default encoding for console output
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
@@ -43,7 +41,6 @@ logger.addHandler(console_handler)
 
 def write_pid():
     try:
-        # Also remove encoding specification for other file I/O to use system default
         with open(get_path("worker.pid"), "w") as f:
             f.write(str(os.getpid()))
         logging.info(f"[PID] PID {os.getpid()} saved successfully.")
@@ -52,7 +49,6 @@ def write_pid():
 
 def load_settings():
     try:
-        # settings.json is saved in utf-8, so this part remains
         with open(get_path("settings.json"), "r", encoding="utf-8") as f:
             settings = json.load(f)
         logging.info(f"[CONFIG] Settings loaded successfully: {json.dumps(settings, ensure_ascii=False)}")
@@ -64,12 +60,16 @@ def load_settings():
 def show_alert():
     logging.warning("[ALERT] Displaying alarm pop-up.")
     try:
-        import ctypes
+        # MB_SYSTEMMODAL 플래그 (0x00001000)를 사용하여 팝업을 최상단에 고정합니다.
+        # 이 옵션은 사용자가 확인 버튼을 누를 때까지 다른 창을 조작할 수 없게 만듭니다.
+        MB_SYSTEMMODAL = 0x00001000
+        alert_style = 0x40 | 0x0 | MB_SYSTEMMODAL
+        
         ctypes.windll.user32.MessageBoxW(
             0,
             "Excessive FIB Heating detected.\nPlease call Maint. -2964-",
             "Heating Alert",
-            0x40 | 0x0
+            alert_style
         )
     except Exception as e:
         logging.error(f"[ALERT] Failed to display pop-up: {e}")

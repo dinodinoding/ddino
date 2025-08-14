@@ -140,26 +140,37 @@ class GUI_App(QWidget):
         try:
             worker_exe_path = os.path.abspath(get_path(self.worker_exe_name))
             monitor_bat_path = os.path.abspath(get_path("monitor_worker.bat"))
+            monitor_vbs_path = os.path.abspath(get_path("run_silent.vbs"))
             
             if not os.path.exists(worker_exe_path):
                 QMessageBox.critical(self, "Start Error", f"Worker executable not found:\n{worker_exe_path}")
                 return
                 
+            # --- bat_content를 tasklist /FI 방식으로 수정 ---
             bat_content = f'@echo off\n' \
                           f'chcp 65001 > nul\n' \
-                          f'tasklist | findstr /I "{self.worker_exe_name}" > nul\n' \
+                          f'tasklist /FI "IMAGENAME eq {self.worker_exe_name}" > nul\n' \
                           f'if %errorlevel% NEQ 0 (\n' \
                           f'    start "" "{worker_exe_path}"\n' \
                           f')\n'
             
             with open(monitor_bat_path, "w", encoding='utf-8') as f:
                 f.write(bat_content)
+
+            # 2. bat 파일을 숨김 모드로 실행하는 vbs 파일 생성
+            vbs_content = f'Set WshShell = WScript.CreateObject("WScript.Shell")\n' \
+                          f'WshShell.Run chr(34) & "{monitor_bat_path}" & chr(34), 0, false\n' \
+                          f'Set WshShell = Nothing\n'
             
+            with open(monitor_vbs_path, "w", encoding='utf-8') as f:
+                f.write(vbs_content)
+
+            # 3. vbs 파일을 실행하도록 작업 스케줄러 등록
             monitor_task_name = "HeatingWorkerMonitor"
-            powershell_command = f"Start-Process -FilePath '{monitor_bat_path}' -WindowStyle Hidden"
-            cmd_monitor = ["schtasks", "/Create", "/TN", monitor_task_name, "/TR", f"powershell.exe -Command \"{powershell_command}\"", "/SC", "MINUTE", "/MO", "5", "/F"]
+            cmd_monitor = ["schtasks", "/Create", "/TN", monitor_task_name, "/TR", f'"{monitor_vbs_path}"', "/SC", "MINUTE", "/MO", "5", "/F"]
             subprocess.run(cmd_monitor, check=True, capture_output=True, shell=True)
 
+            # 4. 워커를 즉시 실행하고, 로그인 시 자동 실행 작업도 등록
             self.register_worker_autostart()
             subprocess.Popen([worker_exe_path], creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
             

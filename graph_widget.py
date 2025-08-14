@@ -1,8 +1,4 @@
 # GUI 스크립트 파일 전체를 이 코드로 교체하세요.
-# 변경점:
-# 1) 스케줄러는 VBS -> PowerShell(.ps1) 을 '완전 숨김'으로 실행 (깜빡임 제거)
-# 2) .ps1에서 Get-Process로 정확히 확인 후, 없을 때만 Start-Process + -WorkingDirectory 지정
-# 3) GUI는 즉시 실행 안 함(중복 제거). 원하면 주석 풀어 '없을 때만' 1회 실행 가능.
 
 import os
 import sys
@@ -16,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+# ----------------- Path helpers -----------------
 if getattr(sys, 'frozen', False):
     BASE_PATH = os.path.dirname(sys.executable)
 else:
@@ -42,18 +39,30 @@ def is_process_running(exe_name: str) -> bool:
     except Exception:
         return False
 
+# ----------------- GUI -----------------
 class GUI_App(QWidget):
     def __init__(self):
         super(GUI_App, self).__init__()
         self.worker_exe_name = "heating_monitor_worker.exe"
         self.setWindowTitle("Heating Monitor - Control Panel")
-        self.setGeometry(100, 100, 600, 270)
+        self.setGeometry(100, 100, 700, 320)
         self.init_ui()
         self.load_settings()
 
     def init_ui(self):
         main_layout = QVBoxLayout()
 
+        # Monitor check interval (스케줄러 주기 - 기본 30분)
+        mon_layout = QHBoxLayout()
+        mon_label = QLabel("Monitor Check Interval (minutes):")
+        self.monitor_interval_spinbox = QSpinBox()
+        self.monitor_interval_spinbox.setRange(1, 1440)
+        self.monitor_interval_spinbox.setValue(30)  # default 30
+        mon_layout.addWidget(mon_label)
+        mon_layout.addWidget(self.monitor_interval_spinbox)
+        main_layout.addLayout(mon_layout)
+
+        # (기존) LOG timeout - 네가 쓰던 값, 저장만 유지
         interval_layout = QHBoxLayout()
         interval_label = QLabel("LOG Mode Timeout (minutes):")
         self.interval_spinbox = QSpinBox()
@@ -63,6 +72,7 @@ class GUI_App(QWidget):
         interval_layout.addWidget(self.interval_spinbox)
         main_layout.addLayout(interval_layout)
 
+        # Threshold
         threshold_layout = QHBoxLayout()
         threshold_label = QLabel("Threshold (occurrences):")
         self.threshold_spinbox = QSpinBox()
@@ -72,6 +82,7 @@ class GUI_App(QWidget):
         threshold_layout.addWidget(self.threshold_spinbox)
         main_layout.addLayout(threshold_layout)
 
+        # Paths
         main_layout.addLayout(self._make_path_input(
             "CSV Log File Path:", "monitoring_log_input", "Browse...", self.browse_csv_file))
         main_layout.addLayout(self._make_path_input(
@@ -79,6 +90,7 @@ class GUI_App(QWidget):
         main_layout.addLayout(self._make_path_input(
             "Converted Log TXT File Path:", "converted_log_input", "Save As...", self.browse_txt_file_save))
 
+        # Converter exe name (설정 저장용)
         converter_layout = QHBoxLayout()
         converter_label = QLabel("Converter Executable Name:")
         self.converter_name_input = QLineEdit("g4_converter.exe")
@@ -86,8 +98,9 @@ class GUI_App(QWidget):
         converter_layout.addWidget(self.converter_name_input)
         main_layout.addLayout(converter_layout)
 
+        # Buttons
         button_layout = QHBoxLayout()
-        self.start_button = QPushButton("Start / Register Monitor")
+        self.start_button = QPushButton("Start / Register Monitoring")
         self.start_button.clicked.connect(self.start_monitoring)
         self.stop_button = QPushButton("Stop Monitoring")
         self.stop_button.clicked.connect(self.stop_monitoring)
@@ -95,6 +108,7 @@ class GUI_App(QWidget):
         button_layout.addWidget(self.stop_button)
         main_layout.addLayout(button_layout)
 
+        # Status
         self.status_label = QLabel("Status: Idle")
         main_layout.addWidget(self.status_label)
 
@@ -135,6 +149,7 @@ class GUI_App(QWidget):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
+                self.monitor_interval_spinbox.setValue(settings.get("monitor_check_minutes", 30))
                 self.interval_spinbox.setValue(settings.get("interval_minutes", 60))
                 self.threshold_spinbox.setValue(settings.get("threshold", 3))
                 self.monitoring_log_input.setText(settings.get("monitoring_log_file_path", ""))
@@ -150,6 +165,7 @@ class GUI_App(QWidget):
     def save_settings(self) -> bool:
         config_path = get_path("settings.json")
         settings = {
+            "monitor_check_minutes": self.monitor_interval_spinbox.value(),
             "interval_minutes": self.interval_spinbox.value(),
             "threshold": self.threshold_spinbox.value(),
             "monitoring_log_file_path": self.monitoring_log_input.text(),
@@ -166,7 +182,7 @@ class GUI_App(QWidget):
             QMessageBox.critical(self, "Save Error", f"설정 저장 실패: {e}")
             return False
 
-    # ------- Scheduler registration (5분마다 확인만 하고 필요 시 실행, 완전 숨김)
+    # ------- Scheduler registration (완전 숨김 + 정확 체크 + 즉시 1회 실행)
     def start_monitoring(self):
         if not self.save_settings():
             return
@@ -182,52 +198,65 @@ class GUI_App(QWidget):
 
             worker_dir = os.path.dirname(worker_exe_path)
             worker_name_no_ext = os.path.splitext(os.path.basename(self.worker_exe_name))[0]
+            monitor_minutes = max(1, int(self.monitor_interval_spinbox.value()))
 
-            # 1) PowerShell 스크립트 파일을 만든다 (정확 매칭 확인 + 없을 때만 실행 + 작업디렉터리 지정)
+            # 1) PowerShell 스크립트(.ps1) 생성: 없을 때만 실행 + 작업 디렉터리 지정
             ps1_path = os.path.abspath(get_path("monitor_worker.ps1"))
             ps1_content = f"""\
-# monitor_worker.ps1
-# 존재하면 아무 것도 안 함, 없으면 워커 실행 (작업 디렉터리 고정)
+# monitor_worker.ps1  (UTF-8 with BOM 권장)
 $ErrorActionPreference = 'SilentlyContinue'
-$n = '{worker_name_no_ext}'
+$n  = '{worker_name_no_ext}'
 $exe = '{worker_exe_path.replace("'", "''")}'
 $wd  = '{worker_dir.replace("'", "''")}'
-
 $p = Get-Process -Name $n -ErrorAction SilentlyContinue
 if (-not $p) {{
     Start-Process -FilePath $exe -WorkingDirectory $wd -WindowStyle Hidden
 }}
 """
-            with open(ps1_path, "w", encoding="utf-8") as f:
+            # UTF-8 with BOM으로 저장(한글 경로 안전)
+            with open(ps1_path, "w", encoding="utf-8-sig") as f:
                 f.write(ps1_content)
 
-            # 2) VBS로 PowerShell을 '완전 숨김'으로 호출 (콘솔 깜빡임 제거)
+            # 2) VBS로 PowerShell을 '완전 숨김' 호출 (콘솔 깜빡임 제거)
             vbs_path = os.path.abspath(get_path("run_monitor_silent.vbs"))
-            # //B (배치 모드), 0 (숨김)
             vbs_content = f'''\
-Set WshShell = CreateObject("WScript.Shell")
-cmd = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{ps1_path}"""
-WshShell.Run cmd, 0, False
-Set WshShell = Nothing
-'''
+' run_monitor_silent.vbs
+On Error Resume Next
+Dim shell, psPath, cmd, fso
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+psPath = shell.ExpandEnvironmentStrings("%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")
+If Not fso.FileExists(psPath) Then
+    psPath = "powershell.exe"
+End If
+
+cmd = """" & psPath & """" & " -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " & """" & "{ps1_path}" & """"
+shell.Run cmd, 0, False  ' 0 = 숨김
+Set shell = Nothing
+Set fso = Nothing
+'''.format(ps1_path=ps1_path.replace('"', '""'))
             with open(vbs_path, "w", encoding="utf-8") as f:
                 f.write(vbs_content)
 
-            # 3) 작업 스케줄러 등록: 5분마다 VBS 실행 (완전 숨김)
+            # 3) 작업 스케줄러 등록: N분마다 VBS 실행
             monitor_task_name = "HeatingWorkerMonitor"
-            cmd_monitor = f'schtasks /Create /TN "{monitor_task_name}" /TR "{vbs_path}" /SC MINUTE /MO 5 /F'
+            cmd_monitor = f'schtasks /Create /TN "{monitor_task_name}" /TR "{vbs_path}" /SC MINUTE /MO {monitor_minutes} /F'
             subprocess.run(cmd_monitor, check=True, shell=True, capture_output=True)
 
-            # 4) (옵션) 로그인 시 한 번 실행 - 필요 없으면 아래 줄 주석
+            # 4) (옵션) 로그인 시 자동 실행 등록
             self.register_worker_autostart()
 
-            # 즉시 실행은 하지 않음 (중복 방지).
-            # 필요하면 '없을 때만' 1회 실행:
-            # if not is_process_running(self.worker_exe_name):
-            #     subprocess.Popen([worker_exe_path], creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
+            # 5) 즉시 1회 실행: 워커가 없으면 지금 켜준다 (30분 기다리지 않게)
+            if not is_process_running(self.worker_exe_name):
+                subprocess.Popen(
+                    [worker_exe_path],
+                    creationflags=subprocess.DETACHED_PROCESS,
+                    close_fds=True
+                )
 
-            QMessageBox.information(self, "Success", "Monitoring registered: every 5 min hidden check & autorun at logon.")
-            self.status_label.setText("Status: Monitoring Registered.")
+            QMessageBox.information(self, "Success", f"Monitoring registered: every {monitor_minutes} min hidden check & autorun at logon. (Started now if it wasn't running.)")
+            self.status_label.setText("Status: Monitoring Registered & Started.")
 
         except subprocess.CalledProcessError as e:
             QMessageBox.critical(self, "Start Error", f"작업 스케줄러 등록 실패: {decode_bytes(e.stderr)}")
@@ -257,7 +286,7 @@ Set WshShell = Nothing
         self.status_label.setText("Status: Idle.")
 
     def register_worker_autostart(self):
-        """로그온 시 한 번 실행. 필요 없으면 start_monitoring에서 호출 주석 처리."""
+        """로그온 시 한 번 실행. 원치 않으면 start_monitoring에서 이 함수 호출을 주석 처리."""
         exe_path = os.path.abspath(get_path(self.worker_exe_name))
         task_name = "HeatingWorkerAutoRun"
         cmd = f'schtasks /Create /TN "{task_name}" /TR "{exe_path}" /SC ONLOGON /F'
@@ -277,6 +306,7 @@ Set WshShell = Nothing
     def closeEvent(self, event):
         event.accept()
 
+# ----------------- Main -----------------
 if __name__ == "__main__":
     try:
         import multiprocessing

@@ -1,104 +1,238 @@
-# widgets/graph_widget.py
+네, 논의했던 모든 수정사항을 적용하여 Gui.py 스크립트 전체 코드를 출력해 드립니다.
+start_monitoring 함수와 stop_monitoring 함수에 감시 스크립트 생성 및 관리 로직이 추가되었습니다.
+# GUI 스크립트 파일 전체를 이 코드로 교체하세요.
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5 import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-from matplotlib.ticker import LogLocator, FormatStrFormatter, FuncFormatter
-import matplotlib.dates as mdates
+import os
+import sys
+import json
+import subprocess
+import signal
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
+    QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog
+)
+from PySide6.QtCore import Qt
 
-class GraphWidget(QWidget):
-    """
-    단일 Matplotlib 그래프를 표시하고 관리하는, 재사용 가능한 위젯.
-    Y축 스케일, 범위, 레이블 등을 커스터마이징할 수 있음.
-    """
-    def __init__(self, y_label, y_scale='linear', y_range=None, parent=None):
-        super().__init__(parent)
-        self.y_label = y_label
-        self.y_scale = y_scale
-        self.y_range = y_range
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 5, 0, 0)
+# QProcess와 QPlainTextEdit는 더 이상 필요 없으므로 import에서 제거해도 됩니다.
 
-        self.canvas = FigureCanvas(Figure(figsize=(10, 3)))
-        self.toolbar = NavigationToolbar(self.canvas, self)
-        self.ax = self.canvas.figure.add_subplot(111)
+if getattr(sys, 'frozen', False):
+    BASE_PATH = os.path.dirname(sys.executable)
+else:
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
-        layout.addWidget(self.toolbar)
-        layout.addWidget(self.canvas)
+def get_path(filename):
+    return os.path.join(BASE_PATH, filename)
 
-        self.ax.callbacks.connect('xlim_changed', self.update_x_ticks)
-    
-    def update_x_ticks(self, ax_event):
-        """현재 보이는 x축 범위에 맞춰 동적으로 틱과 포맷을 '완전 수동으로' 업데이트하는 최종 함수."""
+class GUI_App(QWidget):
+    def __init__(self):
+        super(GUI_App, self).__init__()
+        self.worker_exe_name = "heating_monitor_worker.exe"
+        self.setWindowTitle("Heating Monitor - Control Panel")
+        self.setGeometry(100, 100, 600, 270) # 콘솔이 없으므로 높이 조절
+        self.init_ui()
+        self.load_settings()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+        interval_layout = QHBoxLayout()
+        interval_label = QLabel("LOG Mode Timeout (minutes):")
+        self.interval_spinbox = QSpinBox()
+        self.interval_spinbox.setRange(1, 1440)
+        self.interval_spinbox.setValue(60)
+        interval_layout.addWidget(interval_label)
+        interval_layout.addWidget(self.interval_spinbox)
+        main_layout.addLayout(interval_layout)
+        threshold_layout = QHBoxLayout()
+        threshold_label = QLabel("Threshold (occurrences):")
+        self.threshold_spinbox = QSpinBox()
+        self.threshold_spinbox.setRange(1, 100)
+        self.threshold_spinbox.setValue(3)
+        threshold_layout.addWidget(threshold_label)
+        threshold_layout.addWidget(self.threshold_spinbox)
+        main_layout.addLayout(threshold_layout)
+        main_layout.addLayout(self._make_path_input(
+            "CSV Log File Path:", "monitoring_log_input", "Browse...", self.browse_csv_file))
+        main_layout.addLayout(self._make_path_input(
+            "Raw .LOG File Path:", "log_file_input", "Browse...", self.browse_log_file))
+        main_layout.addLayout(self._make_path_input(
+            "Converted Log TXT File Path:", "converted_log_input", "Save As...", self.browse_txt_file_save))
+        converter_layout = QHBoxLayout()
+        converter_label = QLabel("Converter Executable Name:")
+        self.converter_name_input = QLineEdit("g4_converter.exe")
+        converter_layout.addWidget(converter_label)
+        converter_layout.addWidget(self.converter_name_input)
+        main_layout.addLayout(converter_layout)
+        button_layout = QHBoxLayout()
+        self.start_button = QPushButton("Start / Restart Monitoring")
+        self.start_button.clicked.connect(self.start_monitoring)
+        self.stop_button = QPushButton("Stop Monitoring")
+        self.stop_button.clicked.connect(self.stop_monitoring)
+        button_layout.addWidget(self.start_button)
+        button_layout.addWidget(self.stop_button)
+        main_layout.addLayout(button_layout)
+        self.status_label = QLabel("Status: Idle")
+        main_layout.addWidget(self.status_label)
+        self.setLayout(main_layout)
+
+    def _make_path_input(self, label_text, attr_name, button_text, callback):
+        layout = QHBoxLayout()
+        label = QLabel(label_text)
+        line_edit = QLineEdit()
+        button = QPushButton(button_text)
+        button.clicked.connect(callback)
+        layout.addWidget(label)
+        layout.addWidget(line_edit)
+        layout.addWidget(button)
+        setattr(self, attr_name, line_edit)
+        return layout
+
+    def browse_csv_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select CSV Log File", "", "CSV Files (*.csv);;All Files (*)")
+        if path: self.monitoring_log_input.setText(path)
+
+    def browse_log_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Raw .log File", "", "Log Files (*.log);;All Files (*)")
+        if path: self.log_file_input.setText(path)
+
+    def browse_txt_file_save(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Select Converted TXT Output Path", "", "Text Files (*.txt);;All Files (*)")
+        if path: self.converted_log_input.setText(path)
+
+    def load_settings(self):
+        config_path = get_path("settings.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                self.interval_spinbox.setValue(settings.get("interval_minutes", 60))
+                self.threshold_spinbox.setValue(settings.get("threshold", 3))
+                self.monitoring_log_input.setText(settings.get("monitoring_log_file_path", ""))
+                self.log_file_input.setText(settings.get("log_file_path", ""))
+                self.converted_log_input.setText(settings.get("converted_log_file_path", ""))
+                self.converter_name_input.setText(settings.get("converter_exe_name", "g4_converter.exe"))
+                self.status_label.setText("Status: Settings loaded.")
+            except Exception as e:
+                QMessageBox.warning(self, "Load Error", f"settings.json 읽기 실패: {e}")
+        else:
+            self.status_label.setText("Status: Default settings in use.")
+
+    def save_settings(self):
+        config_path = get_path("settings.json")
+        settings = {
+            "interval_minutes": self.interval_spinbox.value(),
+            "threshold": self.threshold_spinbox.value(),
+            "monitoring_log_file_path": self.monitoring_log_input.text(),
+            "log_file_path": self.log_file_input.text(),
+            "converted_log_file_path": self.converted_log_input.text(),
+            "converter_exe_name": self.converter_name_input.text(),
+        }
         try:
-            xmin, xmax = self.ax.get_xlim()
-            duration_seconds = (xmax - xmin) * 24 * 3600
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=4, ensure_ascii=False)
+            self.status_label.setText("Status: Settings saved.")
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"설정 저장 실패: {e}")
+            return False
 
-            # --- 최종 해결책: FuncFormatter를 사용하여 포맷을 강제 ---
-            if duration_seconds <= 2:
-                locator = mdates.MicrosecondLocator(interval=200000)
-                # %f는 마이크로초(6자리), 슬라이싱으로 밀리초(3자리)로 만듦
-                formatter = FuncFormatter(lambda x, pos: f"{mdates.num2date(x).strftime('%S.%f')[:-3]}")
-            elif duration_seconds <= 15:
-                locator = mdates.SecondLocator(interval=1)
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%H:%M:%S'))
-            elif duration_seconds <= 60 * 2:
-                locator = mdates.SecondLocator(interval=10)
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%H:%M:%S'))
-            elif duration_seconds <= 60 * 30:
-                locator = mdates.MinuteLocator(interval=1)
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%H:%M'))
-            elif duration_seconds <= 3600 * 2:
-                locator = mdates.MinuteLocator(interval=10)
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%H:%M'))
-            elif duration_seconds <= 3600 * 12: # 12시간 이하 (6시간, 12시간 옵션)
-                locator = mdates.HourLocator(interval=1)
-                # '11:00' 형식 강제
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%H:%M'))
-            else: # 그 이상 (하루 옵션)
-                locator = mdates.HourLocator(interval=3)
-                # '06-23 11:00' 형식 강제
-                formatter = FuncFormatter(lambda x, pos: mdates.num2date(x).strftime('%m-%d %H:%M'))
+    def start_monitoring(self):
+        if not self.save_settings():
+            return
+        
+        # 기존에 등록된 모든 작업(로그인/감시)을 중지하고 삭제합니다.
+        self.stop_monitoring(is_starting=True)
+        
+        try:
+            worker_exe_path = os.path.abspath(get_path(self.worker_exe_name))
+            monitor_bat_path = os.path.abspath(get_path("monitor_worker.bat"))
             
-            self.ax.xaxis.set_major_locator(locator)
-            self.ax.xaxis.set_major_formatter(formatter)
+            if not os.path.exists(worker_exe_path):
+                QMessageBox.critical(self, "Start Error", f"Worker executable not found:\n{worker_exe_path}")
+                return
+                
+            # 1. worker.exe를 시작하는 .bat 파일 생성
+            # 이 스크립트는 worker.exe가 실행 중인지 확인하고, 없으면 다시 시작합니다.
+            bat_content = f'@echo off\n' \
+                          f'chcp 65001 > nul\n' \
+                          f'tasklist /FI "IMAGENAME eq {self.worker_exe_name}" | findstr "{self.worker_exe_name}" > nul\n' \
+                          f'if %errorlevel% neq 0 (\n' \
+                          f'    start "" "{worker_exe_path}"\n' \
+                          f')\n'
             
-            for label in self.ax.get_xticklabels():
-                label.set_rotation(30)
-                label.set_ha('right')
+            with open(monitor_bat_path, "w", encoding='utf-8') as f:
+                f.write(bat_content)
             
-            self.canvas.draw_idle()
-        except Exception:
+            # 2. 5분마다 감시 스크립트를 실행하는 작업 스케줄러 등록
+            monitor_task_name = "HeatingWorkerMonitor"
+            cmd_monitor = ["schtasks", "/Create", "/TN", monitor_task_name, "/TR", f'"{monitor_bat_path}"', "/SC", "MINUTE", "/MO", "5", "/F"]
+            subprocess.run(cmd_monitor, check=True, capture_output=True, shell=True)
+
+            # 3. 로그인 시 worker.exe를 한 번 실행하는 기존 작업 등록
+            # 이 작업은 PC 부팅 후 워커가 한 번 실행되도록 보장합니다.
+            self.register_worker_autostart()
+
+            # 4. 워커를 즉시 실행합니다.
+            subprocess.Popen([worker_exe_path], creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
+            
+            QMessageBox.information(self, "Success", "Monitoring started and registered for auto-run and periodic checks.")
+            self.status_label.setText("Status: Monitoring Running.")
+
+        except subprocess.CalledProcessError as e:
+            QMessageBox.critical(self, "Start Error", f"작업 스케줄러 등록 실패: {e.stderr.decode('cp949', errors='ignore')}")
+            self.status_label.setText("Status: Start Failed.")
+        except Exception as e:
+            QMessageBox.critical(self, "Start Error", f"Failed to start the monitoring process directly.\nError: {e}")
+            self.status_label.setText("Status: Start Failed.")
+
+    def stop_monitoring(self, is_starting=False):
+        # 1. 로그인 시 자동 실행 작업 삭제
+        self.unregister_worker_autostart()
+        
+        # 2. 5분마다 실행되는 감시 작업 삭제
+        monitor_task_name = "HeatingWorkerMonitor"
+        try:
+            subprocess.run(f'schtasks /Delete /TN {monitor_task_name} /F', shell=True, check=True, capture_output=True)
+        except subprocess.CalledProcessError:
             pass
+            
+        try:
+            kill_command = f"taskkill /F /IM {self.worker_exe_name}"
+            subprocess.run(kill_command, shell=True, check=True, capture_output=True)
+            if not is_starting:
+                QMessageBox.information(self, "Success", "Monitoring stopped and auto-run unregistered.")
+        except subprocess.CalledProcessError:
+            pass
+        self.status_label.setText("Status: Idle.")
 
-    def plot_data(self, series_data, start_time, end_time):
-        self.ax.clear()
-        
-        for name, points in series_data.items():
-            if points:
-                points.sort(key=lambda x: x[0]) 
-                times = [p[0] for p in points]
-                values = [p[1] for p in points]
-                self.ax.plot(times, values, label=name, marker='.', linestyle='-', markersize=3)
-        
-        if start_time and end_time:
-            self.ax.set_xlim(start_time, end_time)
-        
-        self.ax.set_ylabel(self.y_label)
-        self.ax.set_yscale(self.y_scale)
-        if self.y_range:
-            self.ax.set_ylim(self.y_range)
-        
-        if self.y_scale == 'log':
-            self.ax.yaxis.set_major_locator(LogLocator(base=10))
-            self.ax.yaxis.set_major_formatter(FormatStrFormatter('%.1e'))
-        
-        self.ax.grid(True, which="both", ls="--", alpha=0.6)
-        
-        if any(series_data.values()):
-            self.ax.legend(loc='upper left', fontsize='small')
-        
-        self.canvas.figure.tight_layout()
-        self.canvas.draw()
+    def register_worker_autostart(self):
+        exe_path = os.path.abspath(get_path(self.worker_exe_name))
+        task_name = "HeatingWorkerAutoRun"
+        cmd = ["schtasks", "/Create", "/TN", task_name, "/TR", f'"{exe_path}"', "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
+        try:
+            subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            QMessageBox.critical(self, "Register Error", f"작업 스케줄러 등록 실패: {e.stderr.decode('cp949', errors='ignore')}")
+
+    def unregister_worker_autostart(self):
+        task_name = "HeatingWorkerAutoRun"
+        try:
+            subprocess.run(f'schtasks /Delete /TN {task_name} /F', shell=True, check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            pass
+            
+    def closeEvent(self, event):
+        event.accept()
+
+if __name__ == "__main__":
+    # PyInstaller의 유령 프로세스 문제를 방지하기 위한 코드
+    try:
+        import multiprocessing
+        multiprocessing.freeze_support()
+    except ImportError:
+        pass
+
+    app = QApplication(sys.argv)
+    window = GUI_App()
+    window.show()
+    sys.exit(app.exec_())
+

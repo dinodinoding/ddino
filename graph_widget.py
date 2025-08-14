@@ -1,9 +1,3 @@
-동작 상태가 혼란스럽고 예상과 다르게 작동하고 있다니 매우 당황스러우셨겠습니다. 죄송합니다.
-말씀해주신 증상들을 종합해 보면, 배치 파일의 errorlevel (명령어의 성공/실패 여부를 나타내는 값)이 사용자의 특정 PC 환경에서 저희가 예상했던 것과 다르게 설정되고 있는 것 같습니다.
-이런 문제는 배치 파일이 실행되는 환경에 따라 종종 발생합니다. 이 문제를 해결하기 위해, 가장 신뢰성이 높은 배치 파일 코드로 다시 수정해야 합니다.
-아래 코드는 findstr를 사용하지만, 워커가 실행 중일 때만 정확하게 감지하도록 논리 구조를 조금 더 명확하게 바꾼 버전입니다. 이 방식은 대부분의 윈도우 환경에서 안정적으로 동작하는 것으로 알려져 있습니다.
-최종 Gui.py 스크립트
-아래 코드를 복사해서 기존 Gui.py 파일의 내용을 전부 교체해 주세요.
 # GUI 스크립트 파일 전체를 이 코드로 교체하세요.
 
 import os
@@ -152,11 +146,12 @@ class GUI_App(QWidget):
                 QMessageBox.critical(self, "Start Error", f"Worker executable not found:\n{worker_exe_path}")
                 return
                 
-            # --- bat_content를 findstr을 사용하면서 더 안정적인 논리로 변경 ---
+            # 1. 안정적인 bat 파일 생성 (errorlevel에 의존하지 않는 방식)
             bat_content = f'@echo off\n' \
                           f'chcp 65001 > nul\n' \
-                          f'tasklist | findstr /I "{self.worker_exe_name}" > nul\n' \
-                          f'if errorlevel 1 (\n' \
+                          f'set "result="\n' \
+                          f'for /F "delims=" %%a in (\'tasklist ^| findstr /I "{self.worker_exe_name}"\') do set "result=%%a"\n' \
+                          f'if not defined result (\n' \
                           f'    start "" "{worker_exe_path}"\n' \
                           f')\n'
             
@@ -238,4 +233,3 @@ if __name__ == "__main__":
     window = GUI_App()
     window.show()
     sys.exit(app.exec_())
-

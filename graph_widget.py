@@ -1,5 +1,3 @@
-네, 논의했던 모든 수정사항을 적용하여 Gui.py 스크립트 전체 코드를 출력해 드립니다.
-start_monitoring 함수와 stop_monitoring 함수에 감시 스크립트 생성 및 관리 로직이 추가되었습니다.
 # GUI 스크립트 파일 전체를 이 코드로 교체하세요.
 
 import os
@@ -12,8 +10,6 @@ from PySide6.QtWidgets import (
     QSpinBox, QHBoxLayout, QMessageBox, QLineEdit, QFileDialog
 )
 from PySide6.QtCore import Qt
-
-# QProcess와 QPlainTextEdit는 더 이상 필요 없으므로 import에서 제거해도 됩니다.
 
 if getattr(sys, 'frozen', False):
     BASE_PATH = os.path.dirname(sys.executable)
@@ -28,7 +24,7 @@ class GUI_App(QWidget):
         super(GUI_App, self).__init__()
         self.worker_exe_name = "heating_monitor_worker.exe"
         self.setWindowTitle("Heating Monitor - Control Panel")
-        self.setGeometry(100, 100, 600, 270) # 콘솔이 없으므로 높이 조절
+        self.setGeometry(100, 100, 600, 270)
         self.init_ui()
         self.load_settings()
 
@@ -139,7 +135,6 @@ class GUI_App(QWidget):
         if not self.save_settings():
             return
         
-        # 기존에 등록된 모든 작업(로그인/감시)을 중지하고 삭제합니다.
         self.stop_monitoring(is_starting=True)
         
         try:
@@ -150,28 +145,22 @@ class GUI_App(QWidget):
                 QMessageBox.critical(self, "Start Error", f"Worker executable not found:\n{worker_exe_path}")
                 return
                 
-            # 1. worker.exe를 시작하는 .bat 파일 생성
-            # 이 스크립트는 worker.exe가 실행 중인지 확인하고, 없으면 다시 시작합니다.
             bat_content = f'@echo off\n' \
                           f'chcp 65001 > nul\n' \
-                          f'tasklist /FI "IMAGENAME eq {self.worker_exe_name}" | findstr "{self.worker_exe_name}" > nul\n' \
-                          f'if %errorlevel% neq 0 (\n' \
+                          f'tasklist | findstr /I "{self.worker_exe_name}" > nul\n' \
+                          f'if %errorlevel% NEQ 0 (\n' \
                           f'    start "" "{worker_exe_path}"\n' \
                           f')\n'
             
             with open(monitor_bat_path, "w", encoding='utf-8') as f:
                 f.write(bat_content)
             
-            # 2. 5분마다 감시 스크립트를 실행하는 작업 스케줄러 등록
             monitor_task_name = "HeatingWorkerMonitor"
-            cmd_monitor = ["schtasks", "/Create", "/TN", monitor_task_name, "/TR", f'"{monitor_bat_path}"', "/SC", "MINUTE", "/MO", "5", "/F"]
+            powershell_command = f"Start-Process -FilePath '{monitor_bat_path}' -WindowStyle Hidden"
+            cmd_monitor = ["schtasks", "/Create", "/TN", monitor_task_name, "/TR", f"powershell.exe -Command \"{powershell_command}\"", "/SC", "MINUTE", "/MO", "5", "/F"]
             subprocess.run(cmd_monitor, check=True, capture_output=True, shell=True)
 
-            # 3. 로그인 시 worker.exe를 한 번 실행하는 기존 작업 등록
-            # 이 작업은 PC 부팅 후 워커가 한 번 실행되도록 보장합니다.
             self.register_worker_autostart()
-
-            # 4. 워커를 즉시 실행합니다.
             subprocess.Popen([worker_exe_path], creationflags=subprocess.DETACHED_PROCESS, close_fds=True)
             
             QMessageBox.information(self, "Success", "Monitoring started and registered for auto-run and periodic checks.")
@@ -185,10 +174,8 @@ class GUI_App(QWidget):
             self.status_label.setText("Status: Start Failed.")
 
     def stop_monitoring(self, is_starting=False):
-        # 1. 로그인 시 자동 실행 작업 삭제
         self.unregister_worker_autostart()
         
-        # 2. 5분마다 실행되는 감시 작업 삭제
         monitor_task_name = "HeatingWorkerMonitor"
         try:
             subprocess.run(f'schtasks /Delete /TN {monitor_task_name} /F', shell=True, check=True, capture_output=True)
@@ -224,7 +211,6 @@ class GUI_App(QWidget):
         event.accept()
 
 if __name__ == "__main__":
-    # PyInstaller의 유령 프로세스 문제를 방지하기 위한 코드
     try:
         import multiprocessing
         multiprocessing.freeze_support()
@@ -235,4 +221,3 @@ if __name__ == "__main__":
     window = GUI_App()
     window.show()
     sys.exit(app.exec_())
-

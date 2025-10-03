@@ -25,6 +25,7 @@ logger.setLevel(logging.DEBUG)
 log_file_path = get_path("worker.log")
 
 # Completely remove the encoding parameter from RotatingFileHandler
+# Note: Using default system encoding, which is often 'cp949' on Windows
 file_handler = RotatingFileHandler(log_file_path, maxBytes=2_000_000, backupCount=3)
 
 file_handler.setLevel(logging.DEBUG)
@@ -59,9 +60,22 @@ def load_settings():
 
 def show_alert():
     logging.warning("[ALERT] Displaying alarm pop-up.")
+    
+    # --- Start of MODIFIED code: 1. 로깅을 먼저 수행합니다. ---
+    alert_log_path = r"C:\monitering\heating_alert.log"
     try:
+        # 디렉터리가 없으면 생성합니다.
+        os.makedirs(os.path.dirname(alert_log_path), exist_ok=True)
+        with open(alert_log_path, "a") as f:
+            f.write("1\n")
+        logging.info(f"[ALERT_LOG] Successfully logged '1' to {alert_log_path}")
+    except Exception as log_e:
+        logging.error(f"[ALERT_LOG] Failed to write to alert log: {log_e}")
+    # --- End of MODIFIED code ---
+
+    try:
+        # 2. 팝업창을 띄웁니다. (로깅 완료 후 실행되며, 사용자가 닫을 때까지 블로킹됩니다.)
         # MB_SYSTEMMODAL 플래그 (0x00001000)를 사용하여 팝업을 최상단에 고정합니다.
-        # 이 옵션은 사용자가 확인 버튼을 누를 때까지 다른 창을 조작할 수 없게 만듭니다.
         MB_SYSTEMMODAL = 0x00001000
         alert_style = 0x40 | 0x0 | MB_SYSTEMMODAL
         
@@ -71,22 +85,6 @@ def show_alert():
             "Heating Alert",
             alert_style
         )
-        
-        # --- Start of new code for logging '1' and timestamp ---
-        alert_log_path = r"C:\monitering\heating_alert.log"
-        try:
-            # 디렉터리가 없으면 생성합니다.
-            os.makedirs(os.path.dirname(alert_log_path), exist_ok=True)
-            # 현재 시간을 YYYY-MM-DD HH:MM:SS 형식으로 포맷합니다.
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # "1   " 뒤에 타임스탬프를 추가하여 기록합니다.
-            log_entry = f"1   {timestamp}\n"
-            with open(alert_log_path, "a") as f:
-                f.write(log_entry)
-            logging.info(f"[ALERT_LOG] Successfully logged '{log_entry.strip()}' to {alert_log_path}")
-        except Exception as log_e:
-            logging.error(f"[ALERT_LOG] Failed to write to alert log: {log_e}")
-        # --- End of new code ---
         
     except Exception as e:
         logging.error(f"[ALERT] Failed to display pop-up: {e}")
@@ -283,4 +281,3 @@ if __name__ == "__main__":
         
     write_pid()
     monitor_loop(settings)
-
